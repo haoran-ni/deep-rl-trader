@@ -25,6 +25,7 @@ class Portfolio:
         self.total_value = cash
         self.total_value_history = pd.DataFrame(columns=['Total Value'])
         self.trade_history = {ticker: [] for ticker in tickers}
+        self.cash_enough = True
     
     def step(self, tick, current_prices):
         self.total_value = self.cash
@@ -40,7 +41,9 @@ class Portfolio:
             self.holdings_info[ticker]["returns"] = (current_price - average_price) * shares
 
     def update_cash(self, amount):
-        self.cash += amount
+        self.cash_enough = False if self.cash + amount < 0 else True
+        if self.cash_enough:
+            self.cash += amount
     
     def update_holdings(self, ticker, shares, price):
         # note that the price here does not include fees
