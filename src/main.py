@@ -3,6 +3,7 @@ import pandas_ta as ta
 import yfinance as yf
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import numpy as np
 
 from rule_based_strategy import SMAStrategy
 from utils import *
@@ -26,61 +27,50 @@ df = pd.concat([df, rsi14], axis=1)
 
 
 # initialize strategy
-total_asset = 1000000
-buyin_money = 1000
-portfolio = Portfolio(total_asset)
+TOTAL_ASSET = 1000000
+BUYIN_UNIT = 1000
+portfolio = Portfolio(tickers, TOTAL_ASSET)
 trade_history = []
-
 
 strategy = SMAStrategy(short_term_sma=df['SMA_50'], long_term_sma=df['SMA_200'])
 
-print(df.loc["2020-01-06"]['Open']["NVDA"])
 
-
-
-
-exit()
-
-
-
-
-
-
-
-action = 0
 # the sequence may be different from the initial ticker list, so we call it again
 tickers = df['Close'].columns.to_list()
+actions = np.zeros(len(tickers))
 
-for tick in df.index[190:210]:
+for tick in df.index:
     open_prices = df.loc[tick]["Open"]
     close_prices = df.loc[tick]["Close"]
     for i, ticker in enumerate(tickers):
         open_price = open_prices[ticker]
         close_price = close_prices[ticker]
-        if actions[i] == 1:
+        if actions[i] > 0: # e.g. action = 0.5, buy in with 0.5*BUYIN_UNIT
             # buy in at the open price of the next tick
             buyin_price = open_price
-            shares, cost = buyin_shares(buyin_money, buyin_price) # cost includes fees
-            portfolio.update_cash(-cost)
-            portfolio.update_holdings(ticker, shares, buyin_price)
+            buyin_money = BUYIN_UNIT * actions[i]
+            shares = buyin_shares(buyin_money, buyin_price)
             portfolio.update_trade_history(tick, 'BUY', ticker, shares, buyin_price)
-        elif actions[i] == -1:
+            portfolio.update_cash(-buyin_money)
+            portfolio.update_holdings(ticker, shares, buyin_price)
+        elif actions[i] < 0: # e.g. action = -0.5, sell half of the shares
             # sell at the open price of the next tick
             sell_price = open_price
-            shares = portfolio.holdings_info[ticker]["shares"]
+            # shares is a positive number
+            shares = portfolio.holdings_info[ticker]["shares"]*(-actions[i])
             revenue = sell_shares(shares, sell_price)  # revenue after fees
+            portfolio.update_trade_history(tick, 'SELL', ticker, shares, sell_price)
             portfolio.update_cash(revenue)
             portfolio.update_holdings(ticker, -shares, sell_price)
-            portfolio.update_trade_history(tick, 'SELL', ticker, shares, sell_price)
 
-    # update portfolio at the close price of the current tick
-    # TODO: update portfolio for all tickers
-    portfolio.step(close_prices)
+    # update portfolio data at the close price
+    portfolio.step(tick, close_prices)
     
     actions = strategy.trade(tick)
 
+print(portfolio.trade_history['NVDA'])
 
-# plot
+# plot stock price
 fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
 ax.plot(df.index, df['Close', 'NVDA'], label='Closing Price')
 ax.plot(df.index, df['SMA_50', 'NVDA'], label='SMA 50')
@@ -90,3 +80,11 @@ ax.legend()
 ax.grid()
 # save fig
 plt.savefig('../figures/nvda_closing_prices.png')
+
+# plot total portfolio value over time
+fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+ax.plot(portfolio.total_value_history.index, portfolio.total_value_history['Total Value'], label='Total Portfolio Value')
+ax.legend()
+ax.grid()
+# save fig
+plt.savefig('../figures/portfolio_total_value.png')

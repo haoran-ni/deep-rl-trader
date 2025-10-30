@@ -10,11 +10,13 @@ class Strategy(ABC):
         self.sell = -1
         self.hold = 0
         self.last_action = self.hold
+        self.tickers = None
     
     @abstractmethod
     def trade(self, i):
-        """Decide action at time index i"""
-        pass
+        """Decide the action for each ticker at time index i"""
+        actions = np.zeros(len(self.tickers))
+        return actions
 
 
 class SMAStrategy(Strategy):
@@ -46,15 +48,3 @@ class SMAStrategy(Strategy):
 
         # action for each ticker
         return actions
-
-        # if self.short_term_sma.loc[tick] > self.long_term_sma.loc[tick] and self.last_action != self.buy:
-        #     self.trade_history.append((tick, 'BUY'))
-        #     self.last_action = self.buy
-        #     return self.buy
-
-        # elif self.short_term_sma.loc[tick] < self.long_term_sma.loc[tick] and self.last_action != self.sell:
-        #     self.trade_history.append((tick, 'SELL'))
-        #     self.last_action = self.sell
-        #     return self.sell
-        
-        # return self.hold
