@@ -9,7 +9,7 @@ from rule_based_strategy import SMAStrategy
 from utils import *
 
 # import stock data
-start_date = "2020-01-01"
+start_date = "2014-01-01"
 end_date = "2025-01-01"
 interval = "1d"
 tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
@@ -32,7 +32,7 @@ df = pd.concat([df, rsi14], axis=1)
 
 # initialize strategy
 TOTAL_ASSET = 1000000
-BUYIN_UNIT = 100000
+BUYIN_PORTION = 0.2 # e.g. every buy-in uses 20% of current cash
 portfolio = Portfolio(tickers, TOTAL_ASSET)
 trade_history = []
 
@@ -52,7 +52,7 @@ for tick in df.index:
         if actions[i] > 0: # e.g. action = 0.5, buy in with 0.5*BUYIN_UNIT
             # buy in at the open price of the next tick
             buyin_price = open_price
-            buyin_money = BUYIN_UNIT * actions[i]
+            buyin_money = BUYIN_PORTION * portfolio.cash
             shares = buyin_shares(buyin_money, buyin_price)
             portfolio.update_cash(-buyin_money)
             if portfolio.cash_enough:
@@ -92,7 +92,6 @@ ax.plot(df.index, df['RSI_14', 'NVDA'], label='RSI 14')
 ax.legend()
 ax.grid()
 plt.savefig('../figures/nvda_closing_prices.png')
-
 
 # plot total portfolio value over time, compared with QQQ
 # normalize total values as percentages
