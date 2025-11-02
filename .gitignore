@@ -216,3 +216,9 @@ runs/
 *.pt
 wandb/
 data/
+figures/
+# FinRL logs
+datasets/
+results/
+tensorboard_log/
+trained_models/
