@@ -214,6 +214,7 @@ test.py
 runs/
 *.pkl
 *.pt
+*.zip
 wandb/
 data/
 figures/

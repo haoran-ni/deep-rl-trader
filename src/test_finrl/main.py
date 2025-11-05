@@ -32,7 +32,7 @@ def build_parser():
     parser.add_argument(
         "--mode",
         dest="mode",
-        help="start mode, train, download_data" " backtest",
+        help="train, download_data, test, trade",
         metavar="MODE",
         default="train",
     )
@@ -69,12 +69,15 @@ def main():
             data_source="yahoofinance",
             time_interval="1D",
             technical_indicator_list=INDICATORS,
-            drl_lib="elegantrl",
+            drl_lib="stable_baselines3",
             env=env,
             model_name="ppo",
             cwd="./test_ppo",
             erl_params=ERL_PARAMS,
             break_step=1e5,
+            if_vix=False,
+            data_source_file=os.path.join(current_directory,DATA_SAVE_DIR, "dow_30_data_1D.csv"),
+            tensorboard_log_dir=os.path.join(current_directory,TENSORBOARD_LOG_DIR),
             kwargs=kwargs,
         )
     elif options.mode == "test":
@@ -85,19 +88,29 @@ def main():
         kwargs = {}  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
 
         account_value_erl = test(
-            start_date=TEST_START_DATE,
-            end_date=TEST_END_DATE,
+            start_date="2018-01-01",
+            end_date="2021-01-10",
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
             time_interval="1D",
             technical_indicator_list=INDICATORS,
-            drl_lib="elegantrl",
+            drl_lib="stable_baselines3",
             env=env,
             model_name="ppo",
             cwd="./test_ppo",
             net_dimension=512,
+            if_vix=False,
+            data_source_file=os.path.join(current_directory,DATA_SAVE_DIR, "dow_30_data_1D.csv"),
             kwargs=kwargs,
         )
+        
+        # Plot the account value change curve
+        import matplotlib.pyplot as plt
+        plt.plot(account_value_erl)
+        plt.xlabel('Time Step')
+        plt.ylabel('Episode Total Asset')
+        plt.savefig(os.path.join(current_directory,RESULTS_DIR, f'account_value_erl_ppo.png'))
+        
     elif options.mode == "trade":
         from finrl import trade
         env = StockTradingEnv
@@ -109,7 +122,7 @@ def main():
             data_source="yahoofinance",
             time_interval="1D",
             technical_indicator_list=INDICATORS,
-            drl_lib="elegantrl",
+            drl_lib="stable_baselines3",
             env=env,
             model_name="ppo",
             API_KEY=ALPACA_API_KEY,
@@ -120,18 +133,20 @@ def main():
             kwargs=kwargs,
         )
     elif options.mode == "download_data":
+        time_interval = "1D"
         from finrl.meta.data_processor import DataProcessor
         dp = DataProcessor(data_source="yahoofinance")
         data = dp.download_data(
             ticker_list=DOW_30_TICKER,
             start_date=TRAIN_START_DATE,
             end_date=TEST_END_DATE,
-            time_interval="1D"
+            time_interval=time_interval
         )
-        data = dp.clean_data(data)
         data = dp.add_technical_indicator(data, INDICATORS)
+        data = dp.add_vix(data)
+        data = dp.add_turbulence(data)
         # Save data
-        data.to_csv(os.path.join(current_directory,DATA_SAVE_DIR, "dow_30_data.csv"))
+        data.to_csv(os.path.join(current_directory,DATA_SAVE_DIR, f"dow_30_data_{time_interval}.csv"))
     else:
         raise ValueError("Wrong mode.")
 

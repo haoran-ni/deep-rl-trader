@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
@@ -8,11 +9,16 @@ import numpy as np
 from rule_based_strategy import SMAStrategy
 from utils import *
 
+from finrl.config_tickers import DOW_30_TICKER
+
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+
 # import stock data
-start_date = "2014-01-01"
-end_date = "2025-01-01"
+start_date = "2018-01-01"
+end_date = "2021-01-10"
 interval = "1d"
-tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
+tickers = DOW_30_TICKER #["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
 df = yf.download(tickers, start=start_date, end=end_date, interval=interval, auto_adjust=True)
 df_baseline = yf.download("QQQ", start=start_date, end=end_date, interval=interval, auto_adjust=True)
 
@@ -31,7 +37,7 @@ df = pd.concat([df, rsi14], axis=1)
 
 
 # initialize strategy
-TOTAL_ASSET = 1000000
+TOTAL_ASSET = 1e6
 BUYIN_PORTION = 0.2 # e.g. every buy-in uses 20% of current cash
 portfolio = Portfolio(tickers, TOTAL_ASSET)
 trade_history = []
@@ -81,17 +87,18 @@ for tick in df.index:
     
     actions = strategy.trade(tick)
 
-print(portfolio.trade_history['NVDA'])
+print(portfolio.trade_history['NVDA'] if 'NVDA' in portfolio.trade_history else "No trades for NVDA")
 
 # plot stock price
-fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
-ax.plot(df.index, df['Close', 'NVDA'], label='Closing Price')
-ax.plot(df.index, df['SMA_50', 'NVDA'], label='SMA 50')
-ax.plot(df.index, df['SMA_200', 'NVDA'], label='SMA 200')
-ax.plot(df.index, df['RSI_14', 'NVDA'], label='RSI 14')
-ax.legend()
-ax.grid()
-plt.savefig('../figures/nvda_closing_prices.png')
+if 'NVDA' in df['Close'].columns:
+    fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+    ax.plot(df.index, df['Close', 'NVDA'], label='Closing Price')
+    ax.plot(df.index, df['SMA_50', 'NVDA'], label='SMA 50')
+    ax.plot(df.index, df['SMA_200', 'NVDA'], label='SMA 200')
+    ax.plot(df.index, df['RSI_14', 'NVDA'], label='RSI 14')
+    ax.legend()
+    ax.grid()
+    plt.savefig('../figures/nvda_closing_prices.png')
 
 # plot total portfolio value over time, compared with QQQ
 # normalize total values as percentages
@@ -105,4 +112,4 @@ ax.plot(portfolio.total_value_history.index, portfolio_total, label='Total Portf
 ax.plot(df.index, baseline_total, label='QQQ')
 ax.legend()
 ax.grid()
-plt.savefig('../figures/portfolio_total_value.png')
+plt.savefig(os.path.join(current_directory, '../figures/portfolio_total_value.png'))
