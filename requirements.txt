@@ -3,3 +3,4 @@ numpy==2.2.6
 pandas==2.3.3
 pandas-ta==0.4.71b0
 yfinance==0.2.66
+gymnasium==1.2.2
