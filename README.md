@@ -18,16 +18,16 @@ pip install -r requirements.txt
 ```
 conda install conda-forge::box2d-py
 ```
-5. Add FinRL as submodule
+5. Add FinRL as submodule.
 Go back to the root directory and run
 ```
-git submodule add https://github.com/AI4Finance-Foundation/FinRL.git
+git submodule add https://github.com/jingyan-li/FinRL.git
 git submodule update --init --recursive
 ```
-6. Import FinRL submodule in files
+6. Import FinRL submodule in files.
 We need to make sure the python interpreter detects FinRL as a module:
 
-- Add this into `settings.json` if you are using Visual Studio Code:
+- If you are using Visual Studio Code: use cmd+shift+P to open the shortcut in VS Code, type "Preferences: Open Workspace Settings (JSON)". Add this into `settings.json`:
 ```json
 {
     "terminal.integrated.env.linux": {
