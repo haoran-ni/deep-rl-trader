@@ -30,10 +30,9 @@ class Portfolio:
     def step(self, tick, current_prices):
         self.total_value = self.cash
         for ticker, current_price in current_prices.items():
-            # Note that there will be a bug here if current_price is NaN (unlisted stock)
-            # During training, please always ensure all stocks are listed
-            self.update_returns(ticker, current_price)
-            self.update_total_value(ticker, current_price)
+            if current_price > 0:
+                self.update_returns(ticker, current_price)
+                self.update_total_value(ticker, current_price)
         self.total_value_history.loc[tick, 'Total Value'] = self.total_value
 
     def update_returns(self, ticker, current_price):
