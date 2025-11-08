@@ -18,6 +18,7 @@ from finrl.config import (
     ERL_PARAMS,
     RLlib_PARAMS,
     SAC_PARAMS,
+    TD3_PARAMS,
     ALPACA_API_KEY,
     ALPACA_API_SECRET,
     ALPACA_API_BASE_URL,
@@ -71,8 +72,9 @@ def main():
             technical_indicator_list=INDICATORS,
             drl_lib="stable_baselines3",
             env=env,
-            model_name="ppo",
-            cwd="./test_ppo",
+            model_name="td3",
+            cwd="./test_td3",
+            agent_params=TD3_PARAMS, #Stable_Baselines3 params
             erl_params=ERL_PARAMS,
             break_step=1e5,
             if_vix=False,
@@ -82,14 +84,17 @@ def main():
         )
     elif options.mode == "test":
         from finrl import test
+        import yfinance as yf
+        import pandas as pd
+        
         env = StockTradingEnv
 
         # demo for elegantrl
         kwargs = {}  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
 
         account_value_erl = test(
-            start_date="2018-01-01",
-            end_date="2021-01-10",
+            start_date=TEST_START_DATE,
+            end_date=TEST_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
             time_interval="1D",
@@ -103,12 +108,21 @@ def main():
             data_source_file=os.path.join(current_directory,DATA_SAVE_DIR, "dow_30_data_1D.csv"),
             kwargs=kwargs,
         )
+        # Add QQQ baseline
+        df_baseline = yf.download("QQQ", start=TEST_START_DATE, end=TEST_END_DATE, interval="1D", auto_adjust=True)
+        baseline_normalized_value = df_baseline['Close'] / df_baseline['Close'].iloc[0]
+        totalasset_normalized_value = account_value_erl / account_value_erl[0]
+        assert len(baseline_normalized_value) == len(totalasset_normalized_value), "baseline and test account value length not equal!"
+        totalasset_normalized_value = pd.DataFrame(totalasset_normalized_value, index=baseline_normalized_value.index, columns=['ERL_PPO'])
         
         # Plot the account value change curve
         import matplotlib.pyplot as plt
-        plt.plot(account_value_erl)
+        plt.plot(totalasset_normalized_value, label='ERL_PPO')
+        plt.plot(baseline_normalized_value, label='QQQ')
         plt.xlabel('Time Step')
-        plt.ylabel('Episode Total Asset')
+        plt.ylabel('Total Asset Percentage')
+        plt.legend()
+        plt.grid(True)
         plt.savefig(os.path.join(current_directory,RESULTS_DIR, f'account_value_erl_ppo.png'))
         
     elif options.mode == "trade":

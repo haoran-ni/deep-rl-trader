@@ -10,13 +10,21 @@ from rule_based_strategy import SMAStrategy
 from utils import *
 
 from finrl.config_tickers import DOW_30_TICKER
+from finrl.config import (
+    TRAIN_START_DATE,
+    TRAIN_END_DATE,
+    TEST_START_DATE,
+    TEST_END_DATE,
+    TRADE_START_DATE,
+    TRADE_END_DATE,
+)
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
 
 # import stock data
-start_date = "2018-01-01"
-end_date = "2021-01-10"
+start_date = TEST_START_DATE #"2018-01-01"
+end_date = TEST_END_DATE #"2021-01-10"
 interval = "1d"
 tickers = DOW_30_TICKER #["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
 df = yf.download(tickers, start=start_date, end=end_date, interval=interval, auto_adjust=True)
