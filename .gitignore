@@ -219,7 +219,7 @@ wandb/
 data/
 figures/
 # FinRL logs
-datasets/
+dataset/
 results/
 tensorboard_log/
 trained_models/

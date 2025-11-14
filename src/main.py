@@ -9,11 +9,13 @@ from rule_based_strategy import *
 from trade_env import *
 from tickers import *
 
+from config import *
+
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
 # import stock data
-start_date = "2025-01-01"
-end_date = "2025-11-10" # will not be reached by yf.download
+start_date = TRADE_START_DATE
+end_date = TRADE_END_DATE
 interval = "1h"
 #tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
 tickers = QQQ_TICKERS
