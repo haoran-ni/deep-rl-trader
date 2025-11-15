@@ -132,7 +132,7 @@ def main():
             drl_lib="stable_baselines3",
             env=env,
             model_name=options.model_name,
-            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR),
+            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR, options.model_name),
             agent_params=model_params_map[options.model_name], #Stable_Baselines3 params
             erl_params=ERL_PARAMS,
             break_step=1e5,
@@ -161,7 +161,7 @@ def main():
             drl_lib="stable_baselines3",
             env=env,
             model_name=options.model_name,
-            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR),
+            cwd=os.path.join(model_cwd, "trained_models.zip"), #os.path.join(model_cwd, TRAINED_MODEL_DIR, options.model_name),
             net_dimension=512,
             if_vix=False,
             data_source_file=os.path.join(DATA_ROOT_DIR, DATA_DICT[options.tickers_group][options.time_interval]),
@@ -182,7 +182,7 @@ def main():
         plt.ylabel('Total Asset Percentage')
         plt.legend()
         plt.grid(True)
-        plt.savefig(os.path.join(current_directory,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
+        plt.savefig(os.path.join(model_cwd,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
         
     elif options.mode == "trade":
         # from finrl import trade
@@ -224,7 +224,7 @@ def main():
             drl_lib="stable_baselines3",
             env=env,
             model_name=options.model_name,
-            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR),
+            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR, options.model_name),
             net_dimension=512,
             if_vix=False,
             data_source_file=os.path.join(DATA_ROOT_DIR, DATA_DICT[options.tickers_group][options.time_interval]),
@@ -245,12 +245,12 @@ def main():
         plt.ylabel('Total Asset Percentage')
         plt.legend()
         plt.grid(True)
-        plt.savefig(os.path.join(current_directory,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
+        plt.savefig(os.path.join(model_cwd,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
         
     elif options.mode == "download_data":
         time_interval = options.time_interval
         from finrl.meta.data_processor import DataProcessor
-        dp = DataProcessor(data_source="yahoofinance")
+        dp = DataProcessor(data_source="wrds")
         data = dp.download_data(
             ticker_list=tickers_map[options.tickers_group],
             start_date=TRAIN_START_DATE,
@@ -261,7 +261,7 @@ def main():
         data = dp.add_vix(data)
         data = dp.add_turbulence(data)
         # Save data
-        data.to_csv(os.path.join(current_directory,DATA_SAVE_DIR, f"dow_30_data_{time_interval}.csv"))
+        data.to_csv(os.path.join(DATA_ROOT_DIR,DATA_SAVE_DIR, f"{options.tickers_group}_{time_interval}.csv"))
     else:
         raise ValueError("Wrong mode.")
 
