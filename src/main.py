@@ -14,11 +14,11 @@ from config import *
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
 # import stock data
-start_date = TRADE_START_DATE
-end_date = TRADE_END_DATE
+start_date = '2024-01-01'
+end_date = '2025-11-01'
 interval = "1h"
-#tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
-tickers = QQQ_TICKERS
+tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", "UNH"]
+# tickers = QQQ_TICKERS
 df = yf.download(tickers, start=start_date, end=end_date, interval=interval, auto_adjust=True)
 
 # add new indicator columns

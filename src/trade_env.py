@@ -109,7 +109,7 @@ class TradeEnv(gym.Env):
         self.portfolio.step(self.current_tick, close_prices)
         
         obs = self._get_observation(self.current_tick)
-        reward, truncated = self._get_reward(self.current_tick) # reward.shape = (len(tickers),)
+        reward, truncated = self._get_reward() # reward.shape = (len(tickers),)
         
         return obs, reward, False, truncated, {}
 
@@ -130,8 +130,8 @@ class TradeEnv(gym.Env):
             }
             
         return obs
-    
-    def _get_reward(self, tick: pd.Timestamp) -> float:
+
+    def _get_reward(self) -> float:
         # TODO: add drawback penalty
         # reward is the return of the current ticker in the next 20 ticks, for example
         reward = np.zeros(len(self.tickers), dtype=np.float32)
@@ -146,8 +146,12 @@ class TradeEnv(gym.Env):
             future_price = self.data.loc[self.index[self.i_current_tick + self.reward_look_ahead]]["Close"]
         
         for i, ticker in enumerate(self.tickers):
-            current_price = self.data.loc[tick]["Close"][ticker]
-            reward[i] = (future_price[ticker] - current_price) / current_price
+            if self.portfolio.holdings_info[ticker]["shares"] == 0.0:
+                reward[i] = 0.0
+            else:
+                scale = self.portfolio.holdings_info[ticker]["shares"] / self.portfolio.holdings_info[ticker]["initial_shares"]
+                average_price = self.portfolio.holdings_info[ticker]["average_price"]
+                reward[i] = scale * (future_price[ticker] - average_price) / average_price
 
         return reward, truncated
 
@@ -168,7 +172,13 @@ class Portfolio:
     def __init__(self, tickers, cash=1000000):
         # initialize holdings for each ticker
         self.tickers = tickers
-        self.holdings_info = {ticker: {"shares": 0.0,
+        # initial_shares is used to calculate rewards later
+        # we will scale the rewards based on shares/initial_shares
+        # e.g. if the model decides to add position on a ticker, the rewards will be scaled up accordingly
+        # e.g. if the model decides to reduce position on a ticker, the rewards will be scaled down accordingly
+        # Using this, we hope the model can learn to adjust its positions
+        self.holdings_info = {ticker: {"initial_shares": 0.0,
+                                       "shares": 0.0,
                                        "total_cost": 0.0,
                                        "average_price": 0.0,
                                        "returns": 0.0} for ticker in tickers}
@@ -199,15 +209,21 @@ class Portfolio:
     
     def update_holdings(self, ticker, shares, price):
         # note that the price here does not include fees
+        if self.holdings_info[ticker]["shares"] == 0.0:
+            self.holdings_info[ticker]["initial_shares"] = shares
+        
         self.holdings_info[ticker]["shares"] += shares
-        if self.holdings_info[ticker]["shares"] != 0.0:
+        if self.holdings_info[ticker]["shares"] > 0.0:
             self.holdings_info[ticker]["total_cost"] += price * shares
             self.holdings_info[ticker]["average_price"] = self.holdings_info[ticker]["total_cost"] / self.holdings_info[ticker]["shares"]
-        else:
+        elif self.holdings_info[ticker]["shares"] == 0.0:
             # reset holdings info if all shares are sold
             self.holdings_info[ticker]["total_cost"] = 0.0
             self.holdings_info[ticker]["average_price"] = 0.0
             self.holdings_info[ticker]["returns"] = 0.0
+            self.holdings_info[ticker]["initial_shares"] = 0.0
+        else:
+            raise ValueError(f"Shares of {ticker} cannot be negative.")
     
     def update_trade_history(self, date, action, ticker, shares, price):
         if action == 'SELL':
