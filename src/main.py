@@ -4,6 +4,7 @@ import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
 import matplotlib.pyplot as plt
+from gymnasium import spaces
 
 from rule_based_strategy import *
 from trade_env import *
@@ -13,7 +14,8 @@ from config import *
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
-# import stock data
+
+# ------------------------ import stock data ------------------------
 start_date = '2024-01-01'
 end_date = '2025-11-01'
 interval = "1h"
@@ -21,7 +23,26 @@ tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "JPM", "V", 
 # tickers = QQQ_TICKERS
 df = yf.download(tickers, start=start_date, end=end_date, interval=interval, auto_adjust=True)
 
-# add new indicator columns
+
+# ------------------------ add new indicator columns ------------------------
+# Volume
+RVOL14 = df["Volume"] / df["Volume"].rolling(14).mean()
+RVOL14.columns = pd.MultiIndex.from_product([['RVOL14'], RVOL14.columns])
+df = pd.concat([df, RVOL14], axis=1)
+
+RVOL50 = df["Volume"] / df["Volume"].rolling(50).mean()
+RVOL50.columns = pd.MultiIndex.from_product([['RVOL50'], RVOL50.columns])
+df = pd.concat([df, RVOL50], axis=1)
+
+RVOL200 = df["Volume"] / df["Volume"].rolling(200).mean()
+RVOL200.columns = pd.MultiIndex.from_product([['RVOL200'], RVOL200.columns])
+df = pd.concat([df, RVOL200], axis=1)
+
+# SMA
+sma14 = df['Close'].apply(lambda s: ta.sma(s, length=14))
+sma14.columns = pd.MultiIndex.from_product([['SMA_14'], sma14.columns])
+df = pd.concat([df, sma14], axis=1)
+
 sma50 = df['Close'].apply(lambda s: ta.sma(s, length=50))
 sma50.columns = pd.MultiIndex.from_product([['SMA_50'], sma50.columns])
 df = pd.concat([df, sma50], axis=1)
@@ -30,9 +51,18 @@ sma200 = df['Close'].apply(lambda s: ta.sma(s, length=200))
 sma200.columns = pd.MultiIndex.from_product([['SMA_200'], sma200.columns])
 df = pd.concat([df, sma200], axis=1)
 
+# RSI
 rsi14 = df['Close'].apply(lambda s: ta.rsi(s, length=14))
 rsi14.columns = pd.MultiIndex.from_product([['RSI_14'], rsi14.columns])
 df = pd.concat([df, rsi14], axis=1)
+
+rsi50 = df['Close'].apply(lambda s: ta.rsi(s, length=50))
+rsi50.columns = pd.MultiIndex.from_product([['RSI_50'], rsi50.columns])
+df = pd.concat([df, rsi50], axis=1)
+
+rsi200 = df['Close'].apply(lambda s: ta.rsi(s, length=200))
+rsi200.columns = pd.MultiIndex.from_product([['RSI_200'], rsi200.columns])
+df = pd.concat([df, rsi200], axis=1)
 
 rsi14_ma7 = df['RSI_14'].apply(lambda s: ta.ema(s, length=7))
 rsi14_ma7.columns = pd.MultiIndex.from_product([['RSI_14_MA_7'], rsi14_ma7.columns])
@@ -43,9 +73,9 @@ df = df.dropna()
 df_baseline = yf.download("QQQ", start=df.index[0], end=end_date, interval=interval, auto_adjust=True)
 
 
-# initialize strategy
+# ------------------------ run trading simulation ------------------------
 TOTAL_ASSET = 1e6
-BUYIN_PORTION = 0.1 # e.g. every buy-in uses 20% of current cash
+BUYIN_PORTION = 0.1 # e.g. every buy-in uses $BUYIN_PORTION of current cash
 
 #strategy = SMAStrategy(short_term_sma=df['SMA_50'], long_term_sma=df['SMA_200'])
 strategy = RsiMAStrategy(rsi=df['RSI_14'], rsi_ma=df['RSI_14_MA_7'])
@@ -67,7 +97,7 @@ for _ in range(10000):
         break
 
 
-# plot stock price
+# ------------------------ plot results ------------------------
 if 'NVDA' in df['Close'].columns:
     fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
     ax.plot(df.index, df['Close', 'NVDA'], label='Closing Price')

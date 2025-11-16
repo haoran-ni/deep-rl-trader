@@ -35,13 +35,26 @@ class TradeEnv(gym.Env):
         # hint: use gymnasium.spaces.utils.flatten to quickly convert to a feature vector
         self.observation_space = spaces.Dict({
             ticker: spaces.Dict({
+                # basic market data
                 "Open": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "Close": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
-                "Volume": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                # Volume
+                "RVOL14": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                "RVOL50": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                "RVOL200": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                # SMA
+                "SMA_14": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "SMA_50": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "SMA_200": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                # RSI
                 "RSI_14": spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
-                "shares_held": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                "RSI_50": spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
+                "RSI_200": spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
+                "RSI_14_MA_7": spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
+                # portfolio related
+                "cash": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                "total_value": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                "shares": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "average_price": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "returns": spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32),
             }) for ticker in tickers
@@ -120,11 +133,22 @@ class TradeEnv(gym.Env):
             obs[ticker] = {
                 "Open": np.array([self.data.loc[tick]["Open"][ticker]], dtype=np.float32),
                 "Close": np.array([self.data.loc[tick]["Close"][ticker]], dtype=np.float32),
-                "Volume": np.array([self.data.loc[tick]["Volume"][ticker]], dtype=np.float32),
+                # Volume
+                "RVOL14": np.array([self.data.loc[tick]["RVOL14"][ticker]], dtype=np.float32),
+                "RVOL50": np.array([self.data.loc[tick]["RVOL50"][ticker]], dtype=np.float32),
+                "RVOL200": np.array([self.data.loc[tick]["RVOL200"][ticker]], dtype=np.float32),
+                # SMA
+                "SMA_14": np.array([self.data.loc[tick]["SMA_14"][ticker]], dtype=np.float32),
                 "SMA_50": np.array([self.data.loc[tick]["SMA_50"][ticker]], dtype=np.float32),
                 "SMA_200": np.array([self.data.loc[tick]["SMA_200"][ticker]], dtype=np.float32),
+                # RSI
                 "RSI_14": np.array([self.data.loc[tick]["RSI_14"][ticker]], dtype=np.float32),
-                "shares_held": self.portfolio.holdings_info[ticker]["shares"],
+                "RSI_50": np.array([self.data.loc[tick]["RSI_50"][ticker]], dtype=np.float32),
+                "RSI_200": np.array([self.data.loc[tick]["RSI_200"][ticker]], dtype=np.float32),
+                # portfolio related
+                "cash": self.portfolio.cash,
+                "total_value": self.portfolio.total_value,
+                "shares": self.portfolio.holdings_info[ticker]["shares"],
                 "average_price": self.portfolio.holdings_info[ticker]["average_price"],
                 "returns": self.portfolio.holdings_info[ticker]["returns"],
             }
