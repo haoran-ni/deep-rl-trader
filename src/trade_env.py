@@ -60,7 +60,7 @@ class TradeEnv(gym.Env):
         self.current_tick = self.start_time
         self.i_current_tick = 0
         self.portfolio = Portfolio(self.tickers, cash=self.initial_cash)
-        return self._get_observation(self.current_tick)
+        return self._get_observation(self.current_tick), {}
 
     def step(self, actions: np.ndarray):
         # NOTE: this function should be called strictly based on time sequence because portfolio is time dependent
