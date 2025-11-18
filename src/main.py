@@ -86,7 +86,7 @@ env = TradeEnv(data=df,
                buyin_portion=BUYIN_PORTION,
                reward_look_ahead=20)
 
-obs = env.reset()
+obs, _ = env.reset()
 for _ in range(10000):
     actions = strategy.trade(env.current_tick, env.i_current_tick, env.portfolio)
     obs, reward, terminated, truncated, info = env.step(actions)
