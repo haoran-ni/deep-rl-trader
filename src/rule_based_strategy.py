@@ -12,6 +12,7 @@ class Strategy(ABC):
         self.last_action = self.hold
         self.tickers = []
         self.ticker_to_i = {}
+        self.name = None
     
     @abstractmethod
     def trade(self, tick, itick, portfolio):
@@ -36,6 +37,7 @@ class SMAStrategy(Strategy):
         self.ticker_to_i = {ticker: i for i, ticker in enumerate(self.tickers)}
         self.trade_history = pd.DataFrame(float("nan"), index=short_term_sma.index, columns=self.tickers)
         self.last_action = np.zeros(len(self.tickers))
+        self.name = 'sma'
 
     def trade(self, tick, itick, portfolio):
         # tick is the date index
@@ -74,6 +76,7 @@ class RsiMAStrategy(Strategy):
         self.ticker_to_i = {ticker: i for i, ticker in enumerate(self.tickers)}
         self.trade_history = pd.DataFrame(float("nan"), index=rsi.index, columns=self.tickers)
         self.last_action = np.zeros(len(self.tickers))
+        self.name = 'rsi_ma'
 
     def trade(self, tick, itick, portfolio):
         actions = np.zeros(len(self.tickers), dtype=np.float32)
@@ -126,6 +129,7 @@ class SMAStrategySingleStock(Strategy):
         self.long_term_sma = long_term_sma
         self.trade_history = pd.DataFrame(float("nan"), index=short_term_sma.index, columns=["Action"])
         self.last_action = self.hold
+        self.name = 'sma_single'
 
     def trade(self, tick, itick, portfolio):
         # tick is the date index
