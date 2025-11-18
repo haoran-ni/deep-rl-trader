@@ -54,7 +54,7 @@ class PreLSTMFeaturesSingle(BaseFeaturesExtractor):
         last_h = h_n[-1]                               # (B,H)
         feats = self.post(last_h)                      # (B,F)
 
-        if self.use_rule_mixing:
+        if self.use_rule_mixing and ("rule_actions" in obs):
             rule = obs["rule_actions"].float()
             if rule.dim() == 1:
                 rule = rule.unsqueeze(0).expand(seq.size(0), -1)
@@ -98,10 +98,10 @@ class PreMLPFeaturesSingle(BaseFeaturesExtractor):
 
     def forward(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         seq = obs["seq_regular"].float()               # (B,T,D)
-        x = seq[:, -1, :]                               # (B,D) last frame only
-        feats = self.ff(x)                              # (B,F)
+        x = seq[:, -1, :]                              # (B,D) last frame only
+        feats = self.ff(x)                             # (B,F)
 
-        if self.use_rule_mixing:
+        if self.use_rule_mixing and ("rule_actions" in obs):
             rule = obs["rule_actions"].float()
             if rule.dim() == 1:
                 rule = rule.unsqueeze(0).expand(seq.size(0), -1)

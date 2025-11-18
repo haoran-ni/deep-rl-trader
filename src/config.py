@@ -1,3 +1,66 @@
+# config.py
+from __future__ import annotations
+
+# ---------- Data ranges ----------
+# Defaults requested by you:
+TRAIN_START = "2005-01-01"
+TRAIN_END   = "2018-12-31"
+
+VAL_START   = "2019-01-01"
+VAL_END     = "2020-12-31"
+
+TEST_START  = "2021-01-01"
+TEST_END    = "2024-12-31"
+
+# A little buffer for cached downloads so we can pre-pad T-1 history
+CACHE_DOWNLOAD_START = "2004-01-01"
+CACHE_DOWNLOAD_END   = "2024-12-31"
+
+INTERVAL = "1d"
+
+# ---------- Env / economics ----------
+TOTAL_ASSET    = 1_000_000.0
+BUYIN_PORTION  = 0.2
+REWARD_LOOK_AHEAD = 0  # 20
+
+# Rolling history length T for (T, D) sequences
+T_SEQUENCE = 30  # history length T (no warm-up forced; we pre-slice with real past)
+
+# ---------- Rule-mixing ----------
+# Set an empty list [] to disable rule-mixing entirely
+RULE_COMPONENTS = ["sma", "rsi_ma"]
+USE_RULE_MIXING = True
+
+# ---------- Algo / nets ----------
+FEATURE_TYPE = "lstm"       # "lstm" or "mlp"   (feature extractor)
+POLICY_TYPE  = "recurrent"  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
+
+LSTM_ACT_HIDDEN = 512       # actor/critic recurrent body hidden size (sb3-contrib)
+MIX_HIDDEN      = 64        # hidden width for the mixing MLP (latent_pi -> 1+K)
+
+# ---------- PPO ----------
+# TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
+TOTAL_STEPS_PER_ENV = 1_000  # multiplied by number of training envs
+N_STEPS     = 128
+BATCH_SIZE  = 128
+N_EPOCHS    = 10
+GAMMA       = 0.99
+GAE_LAMBDA  = 0.95
+CLIP_RANGE  = 0.2
+ENT_COEF    = 0.01
+VF_COEF     = 0.5
+MAX_GRAD_NORM = 0.5
+SEED        = 42
+
+# ---------- Logging / cache ----------
+# EVAL_EVERY = 20_000     # periodic eval steps
+EVAL_EVERY = 1_000     # periodic eval steps
+USE_WANDB  = True
+WANDB_PROJECT = "clstm_ppo_rule_aug"
+
+CACHE_DIR  = "data_cache"
+ETF_BENCH  = "QQQ"       # used for plots; cached too
+
 ######## Date Ranges ########
 
 TRAIN_START_DATE = "2005-01-01"

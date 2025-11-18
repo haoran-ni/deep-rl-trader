@@ -1,27 +1,46 @@
 # rule_augmented_ppo.py
 from __future__ import annotations
-import os
-import torch
-import torch.nn as nn
-import wandb
 
-from gymnasium import spaces
-from stable_baselines3 import PPO
+import os
+
+import torch.nn as nn
 from sb3_contrib import RecurrentPPO
+from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from data_utils import load_single_ticker_df, slice_by_dates, make_wrapped_env
+import wandb
+from callbacks import PeriodicMultiYearEval
+from config import (
+    TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END,
+    CACHE_DOWNLOAD_START, CACHE_DOWNLOAD_END, INTERVAL,
+    TOTAL_ASSET, BUYIN_PORTION, REWARD_LOOK_AHEAD, T_SEQUENCE,
+    RULE_COMPONENTS, USE_RULE_MIXING,
+    FEATURE_TYPE, POLICY_TYPE, LSTM_ACT_HIDDEN, MIX_HIDDEN,
+    TOTAL_STEPS_PER_ENV, N_STEPS, BATCH_SIZE, N_EPOCHS,
+    GAMMA, GAE_LAMBDA, CLIP_RANGE, ENT_COEF, VF_COEF, MAX_GRAD_NORM, SEED,
+    EVAL_EVERY, USE_WANDB, WANDB_PROJECT, CACHE_DIR, ETF_BENCH,
+)
+from data_utils import (
+    load_panel_cached, add_indicators, slice_with_history,
+    make_wrapped_env, load_qqq_cached
+)
+from eval_utils import evaluate_split_yearly_multi_total
 from features import PreLSTMFeaturesSingle, PreMLPFeaturesSingle
 from policies import RuleAugmentedRecurrentPolicySingle, RuleAugmentedMLPPolicySingle
-from callbacks import EvalAndWB
-from eval_utils import evaluate_one_split
+from tickers import MULTIPLE_TICKERS, QQQ_TICKERS
 
-def build_policy_and_kwargs(cfg, obs_space: spaces.Dict):
-    """Select (policy_class, algo_class, policy_kwargs) based on feature/policy types."""
-    feature_type = cfg["feature_type"]      # "lstm" or "mlp"
-    policy_type  = cfg["policy_type"]       # "recurrent" or "mlp"
 
-    # Choose features extractor
+# ------------------------- policy builder -------------------------
+
+def build_policy_and_kwargs(cfg):
+    """
+    Select (policy_class, algo_class, policy_kwargs) based on feature/policy types.
+    We keep SB3 internal activation as Tanh, but our custom extractors/mixing MLP use SiLU.
+    """
+    feature_type = cfg["feature_type"]
+    policy_type  = cfg["policy_type"]
+
+    # features extractor
     if feature_type == "lstm":
         fe_class = PreLSTMFeaturesSingle
         fe_kwargs = dict(features_dim=256, lstm_hidden=128, lstm_layers=1, fc_hidden=(256, 256),
@@ -33,7 +52,7 @@ def build_policy_and_kwargs(cfg, obs_space: spaces.Dict):
     else:
         raise ValueError("feature_type must be 'lstm' or 'mlp'")
 
-    # Choose policy + algorithm
+    # policy + algorithm
     if policy_type == "recurrent":
         policy_class = RuleAugmentedRecurrentPolicySingle
         algo_class = RecurrentPPO
@@ -68,67 +87,79 @@ def build_policy_and_kwargs(cfg, obs_space: spaces.Dict):
 
     return policy_class, algo_class, common_kwargs
 
+
 def main():
+    # -------------------- Config --------------------
     cfg = dict(
-        # data/splits
-        ticker="NVDA",
-        interval="1d",
-        # env
-        total_asset=1_000_000.0,
-        buyin_portion=0.2,
-        lookahead=20,
-        T=30,
-        # T=1,
-        warmup_steps=None,    # or integer; default uses T-1
+        # data & splits
+        interval=INTERVAL,
+        train_tickers=MULTIPLE_TICKERS,
+        val_tickers=QQQ_TICKERS,
+        test_tickers=QQQ_TICKERS,
+        train_start=TRAIN_START, train_end=TRAIN_END,
+        val_start=VAL_START,     val_end=VAL_END,
+        test_start=TEST_START,   test_end=TEST_END,
+
+        # env / econ
+        total_asset=TOTAL_ASSET,
+        buyin_portion=BUYIN_PORTION,
+        lookahead=REWARD_LOOK_AHEAD,
+        T=T_SEQUENCE,
+
         # rule mixing
-        use_rule_mixing=True,
-        # use_rule_mixing=False,
-        # algorithm & nets
-        feature_type="lstm",      # "lstm" or "mlp"
-        # feature_type="mlp",      # "lstm" or "mlp"
-        policy_type="recurrent",  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
-        # policy_type="mlp",  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
-        lstm_act_hidden=512,
-        mix_hidden=64,
+        use_rule_mixing=USE_RULE_MIXING,
+        rule_components=RULE_COMPONENTS,
+
+        # policy/feature
+        feature_type=FEATURE_TYPE,
+        policy_type=POLICY_TYPE,
+        lstm_act_hidden=LSTM_ACT_HIDDEN,
+        mix_hidden=MIX_HIDDEN,
+
         # train
-        total_steps=300_000,
-        n_steps=128,
-        batch_size=128,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        seed=42,
+        total_steps_per_env=TOTAL_STEPS_PER_ENV,
+        n_steps=N_STEPS, batch_size=BATCH_SIZE, n_epochs=N_EPOCHS,
+        gamma=GAMMA, gae_lambda=GAE_LAMBDA, clip_range=CLIP_RANGE,
+        ent_coef=ENT_COEF, vf_coef=VF_COEF, max_grad_norm=MAX_GRAD_NORM,
+        seed=SEED,
+
         # eval/log
-        eval_every=20_000,
-        use_wandb=True,
-        project="clstm_ppo_rule_aug",
+        eval_every=EVAL_EVERY,
+        use_wandb=USE_WANDB,
+        project=WANDB_PROJECT,
+        cache_dir=CACHE_DIR,
+        etf_bench=ETF_BENCH,
     )
 
-    # data & splits
-    df_all = load_single_ticker_df(cfg["ticker"], "2013-01-01", "2025-01-01", cfg["interval"])
-    df_train = slice_by_dates(df_all, "2014-01-01", "2020-12-31")
-    df_val   = slice_by_dates(df_all, "2021-01-01", "2022-12-31")
-    df_test  = slice_by_dates(df_all, "2023-01-01", "2024-12-31")
+    # -------------------- Data (cached: 2004..2024 + indicators) --------------------
+    all_tickers = sorted(set(cfg["train_tickers"] + cfg["val_tickers"] + cfg["test_tickers"] + [cfg["etf_bench"]]))
+    raw_panel = load_panel_cached(all_tickers, cfg["interval"], cfg["cache_dir"],
+                                  start=CACHE_DOWNLOAD_START, end=CACHE_DOWNLOAD_END)
+    df_all = add_indicators(raw_panel)  # dropna inside
 
-    # envs
-    warmup = cfg["warmup_steps"] or cfg["T"] - 1
-    train_env = make_wrapped_env(df_train, cfg["ticker"], cfg["total_asset"], cfg["buyin_portion"], cfg["lookahead"], cfg["T"], warmup)
-    val_env   = make_wrapped_env(df_val,   cfg["ticker"], cfg["total_asset"], cfg["buyin_portion"], cfg["lookahead"], cfg["T"], warmup)
-    test_env  = make_wrapped_env(df_test,  cfg["ticker"], cfg["total_asset"], cfg["buyin_portion"], cfg["lookahead"], cfg["T"], warmup)
-    vec_train = DummyVecEnv([lambda: train_env])
+    # Cache QQQ close for later plots
+    qqq_close = load_qqq_cached(cfg["etf_bench"], cfg["interval"], cfg["cache_dir"],
+                                start=CACHE_DOWNLOAD_START, end=CACHE_DOWNLOAD_END)
 
-    # build policy/algo
-    policy_class, algo_class, policy_kwargs = build_policy_and_kwargs(cfg, train_env.observation_space)
+    # -------------------- Build train vec envs (one env per train ticker) --------------------
+    def make_env_for_split(ticker: str, start: str, end: str):
+        df_t = df_all[[c for c in df_all.columns if c[1] == ticker]]
+        df_ext, start_at = slice_with_history(df_t, start, end, cfg["T"])
+        return make_wrapped_env(df_ext, ticker, cfg["total_asset"], cfg["buyin_portion"],
+                                cfg["lookahead"], cfg["T"], start_at, cfg["rule_components"])
 
-    # wandb single run
+    train_envs = [
+        (lambda t=t: make_env_for_split(t, cfg["train_start"], cfg["train_end"]))
+        for t in cfg["train_tickers"]
+    ]
+    vec_train = DummyVecEnv(train_envs)
+
+    # -------------------- Build policy/algo --------------------
+    policy_class, algo_class, policy_kwargs = build_policy_and_kwargs(cfg)
+
     if cfg["use_wandb"] and getattr(wandb, "run", None) is None:
-        wandb.init(project=cfg["project"], config={**cfg}, reinit=False)
+        wandb.init(project=cfg["project"], config={**cfg}, reinit="return_previous")
 
-    # algorithm
     model = algo_class(
         policy=policy_class,
         env=vec_train,
@@ -147,31 +178,70 @@ def main():
         verbose=1,
     )
 
-    # callback with periodic val logging
-    eval_cb = EvalAndWB(val_env, cfg["eval_every"], cfg, df_val, cfg["ticker"])
+    # Periodic validation: ALL val years in MULTI-ticker mode (no rule/QQQ; no plots)
+    df_val_full = df_all[[c for c in df_all.columns if c[1] in cfg["val_tickers"]]]
+    eval_cb = PeriodicMultiYearEval(
+        df_val_full=df_val_full,
+        val_tickers=cfg["val_tickers"],
+        total_asset=cfg["total_asset"],
+        buyin_portion=cfg["buyin_portion"],
+        lookahead=cfg["lookahead"],
+        T=cfg["T"],
+        start=cfg["val_start"], end=cfg["val_end"],
+        rule_components=cfg["rule_components"],
+        every_steps=cfg["eval_every"],
+        use_wandb=cfg["use_wandb"],
+    )
 
-    # train
-    model.learn(total_timesteps=cfg["total_steps"], callback=eval_cb)
+    # total timesteps accounts for number of train envs
+    total_steps = cfg["total_steps_per_env"] * len(cfg["train_tickers"])
+    model.learn(total_timesteps=total_steps, callback=eval_cb)
     model.save("clstm_ppo_rule_aug_single_asset.zip")
 
-    # final evaluation & plots
-    results_val  = evaluate_one_split(model, val_env,  df_val,  cfg["ticker"], cfg["total_asset"], split_name="val")
-    results_test = evaluate_one_split(model, test_env, df_test, cfg["ticker"], cfg["total_asset"], split_name="test")
+    # -------------------- Final evaluation & plots --------------------
+    os.makedirs("figures", exist_ok=True)
 
-    # log plots
-    if getattr(wandb, "run", None) is not None:
-        for split, res in [("val", results_val), ("test", results_test)]:
-            wandb.log({
-                f"{split}/final_value": float(res["value_curve"][1][-1]),
-                f"{split}/return": float(res["value_curve"][1][-1] / res["value_curve"][1][0] - 1.0),
-                f"{split}/curve": wandb.Image(res["paths"]["curve"]),
-                f"{split}/shares": wandb.Image(res["paths"]["shares"]),
-                f"{split}/price": wandb.Image(res["paths"]["price"]),
-            })
+    # Validation (multi-ticker total value; per-year plots) + log
+    val_results = evaluate_split_yearly_multi_total(
+        model=model,
+        df_full=df_all,
+        tickers=cfg["val_tickers"],
+        total_asset=cfg["total_asset"],
+        buyin_portion=cfg["buyin_portion"],
+        lookahead=cfg["lookahead"],
+        T=cfg["T"],
+        split_name="val",
+        start=cfg["val_start"], end=cfg["val_end"],
+        rule_components=cfg["rule_components"],
+        qqq_close_series=qqq_close,
+        interval=cfg["interval"],
+        log_wandb=cfg["use_wandb"],
+    )
 
+    # Test (multi-ticker total value; per-year plots) + log
+    test_results = evaluate_split_yearly_multi_total(
+        model=model,
+        df_full=df_all,
+        tickers=cfg["test_tickers"],
+        total_asset=cfg["total_asset"],
+        buyin_portion=cfg["buyin_portion"],
+        lookahead=cfg["lookahead"],
+        T=cfg["T"],
+        split_name="test",
+        start=cfg["test_start"], end=cfg["test_end"],
+        rule_components=cfg["rule_components"],
+        qqq_close_series=qqq_close,
+        interval=cfg["interval"],
+        log_wandb=cfg["use_wandb"],
+    )
+
+    if cfg["use_wandb"]:
+        wandb.log({"val/summary": val_results})
+        wandb.log({"test/summary": test_results})
         wandb.finish()
 
     print("Saved model → clstm_ppo_rule_aug_single_asset.zip; plots → ./figures/")
+
 
 if __name__ == "__main__":
     main()
