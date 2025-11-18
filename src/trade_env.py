@@ -189,11 +189,12 @@ class TradeEnv(gym.Env):
             future_price = self.data.loc[self.index[self.i_current_tick + self.reward_look_ahead]]["Close"]
         
         for i, ticker in enumerate(self.tickers):
-            if self.portfolio.holdings_info[ticker]["shares"] == 0.0:
+            holding_shares = self.portfolio.holdings_info[ticker]["shares"]
+            if holding_shares == 0.0:
                 reward[i] = 0.0
             else:
                 average_price = self.portfolio.holdings_info[ticker]["average_price"]
-                reward[i] = self.portfolio.holdings_info[ticker]["shares"] * (future_price[ticker] - average_price) / average_price
+                reward[i] = holding_shares * (future_price[ticker] - average_price) / average_price
 
         return reward, truncated
 
