@@ -125,8 +125,9 @@ class TradeEnv(gym.Env):
                 # sell at the open price of the next tick
                 sell_price = open_price
                 # shares is a positive integer number
-                shares = max(1.0, np.floor(self.portfolio.holdings_info[ticker]["shares"]*(-actions[i])))
-                if shares > 0:
+                holding_shares = self.portfolio.holdings_info[ticker]["shares"]
+                if holding_shares > 0:
+                    shares = max(1.0, np.floor(holding_shares * (-actions[i])))
                     revenue = self._sell_shares(shares, sell_price)  # revenue after fees
                     self.portfolio.update_cash(revenue)
                     self.portfolio.update_trade_history(self.current_tick, 'SELL', ticker, shares, sell_price)
@@ -200,7 +201,7 @@ class TradeEnv(gym.Env):
     def _buyin_shares(self, buyin_money, price):
         # only buyin integer shares
         price_with_fee = price * (1 + self.fee_rate)
-        shares = np.floor(buyin_money / price_with_fee)
+        shares = max(1.0, np.floor(buyin_money / price_with_fee))
         actual_buyin_money = shares * price_with_fee
         return shares, actual_buyin_money
 
