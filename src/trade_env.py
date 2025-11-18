@@ -125,7 +125,7 @@ class TradeEnv(gym.Env):
                 # sell at the open price of the next tick
                 sell_price = open_price
                 # shares is a positive integer number
-                shares = np.floor(self.portfolio.holdings_info[ticker]["shares"]*(-actions[i]))
+                shares = max(1.0, np.floor(self.portfolio.holdings_info[ticker]["shares"]*(-actions[i])))
                 if shares > 0:
                     revenue = self._sell_shares(shares, sell_price)  # revenue after fees
                     self.portfolio.update_cash(revenue)
