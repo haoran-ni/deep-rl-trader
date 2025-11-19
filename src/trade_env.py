@@ -194,7 +194,7 @@ class TradeEnv(gym.Env):
                 reward[i] = 0.0
             else:
                 average_price = self.portfolio.holdings_info[ticker]["average_price"]
-                reward[i] = holding_shares * (future_price[ticker] - average_price) / average_price
+                reward[i] = holding_shares * (future_price[ticker] - average_price) / self.initial_cash
 
         return reward, truncated
 
