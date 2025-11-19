@@ -1,6 +1,5 @@
 # eval_utils.py
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -53,7 +52,7 @@ def plot_total_value_curves(curves: Dict[str, Tuple[List, List]] , title: str, o
     return out_path
 
 
-# ------------------------- RL rollout on multi-ticker env (now reusing wrapper helpers) -------------------------
+# ------------------------- RL rollout on multi-ticker env -------------------------
 
 def rollout_multi_total_with_model(
     model,
@@ -65,10 +64,7 @@ def rollout_multi_total_with_model(
 ) -> Tuple[List, List]:
     """
     Drive a multi-ticker TradeEnv using a SINGLE-ASSET policy by generating one action per ticker.
-
-    DRY: reuses RollingSeq, reg_keys_for, flatten_regular and compute_rule_stack
-    to avoid maintaining any ad-hoc buffers here.
-
+    DRY: reuses RollingSeq, reg_keys_for, flatten_regular and compute_rule_stack.
     Returns (dates, total_values)
     """
     # Init per-ticker rolling builders + RNN states
@@ -171,15 +167,20 @@ def evaluate_split_yearly_multi_total(
 ) -> Dict:
     """
     For each YEAR in [start, end]:
-      - Build one multi-ticker TradeEnv for RL and for each rule strategy (separately)
-      - Rollout RL (using per-ticker single-asset policy calls) → total portfolio curve
-      - Rollout each rule baseline → curves
-      - Plot only TOTAL portfolio value (no per-stock plots)
-      - Compute yearly returns and log to W&B
+      - Total-portfolio RL vs each rule baseline vs QQQ (cached), single plot per year.
+      - Returns are computed as last/first - 1.0 on total portfolio value (per year).
+    Returns:
+      {
+        "per_year": {year: {"rl_return": float, "Rule:<name>_return": float, "QQQ_return": float, ...}},
+        "plots": {year: "figpath"},
+        "avg":   {"rl_return": float, "Rule:<name>_return": float, "QQQ_return": float, ...}  # mean across years
+      }
     """
     import wandb
 
-    results = {"per_year": {}, "plots": {}}
+    results = {"per_year": {}, "plots": {}, "avg": {}}
+    # We'll aggregate per-key yearly returns to compute averages afterwards.
+    aggregator: Dict[str, List[float]] = {}
 
     for y_start, y_end in year_ranges(start, end):
         yr = y_start.year
@@ -212,21 +213,29 @@ def evaluate_split_yearly_multi_total(
         out_png = f"figures/{split_name}_{yr}_total_value.png"
         plot_total_value_curves(curves, f"{split_name.capitalize()} {yr} — Total Value", out_png)
 
-        # Stats
-        ret_rl = float(v_rl[-1] / v_rl[0] - 1.0)
-        stats = {"rl_return": ret_rl}
+        # ---- compute returns & aggregate
+        stats = {}
         for k, (_, vals) in curves.items():
-            if k == "RL":
-                continue
-            stats[f"{k}_return"] = float(vals[-1] / vals[0] - 1.0)
+            ret = float(vals[-1] / vals[0] - 1.0)
+            key_name = "rl_return" if k == "RL" else f"{k}_return"
+            stats[key_name] = ret
+            aggregator.setdefault(key_name, []).append(ret)
+
         results["per_year"][yr] = stats
         results["plots"][yr] = out_png
 
-        if log_wandb:
-            wandb.log({f"{split_name}/{yr}/rl_ret": ret_rl})
-            for k, v in stats.items():
-                if k != "rl_return":
-                    wandb.log({f"{split_name}/{yr}/{k}": v})
+        if log_wandb and getattr(wandb, "run", None) is not None:
+            for nm, val in stats.items():
+                wandb.log({f"{split_name}/{yr}/{nm}": val})
+
             wandb.log({f"{split_name}/{yr}/plot_total": wandb.Image(out_png)})
+
+    # ---- averages across years
+    avg_stats = {k: float(np.mean(vs)) for k, vs in aggregator.items() if len(vs) > 0}
+    results["avg"] = avg_stats
+
+    if log_wandb and getattr(wandb, "run", None) is not None:
+        for nm, val in avg_stats.items():
+            wandb.log({f"{split_name}/avg/{nm}": val})
 
     return results

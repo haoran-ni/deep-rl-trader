@@ -8,17 +8,16 @@ from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-import wandb
 from callbacks import PeriodicMultiYearEval
 from config import (
     TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END,
     CACHE_DOWNLOAD_START, CACHE_DOWNLOAD_END, INTERVAL,
-    TOTAL_ASSET, BUYIN_PORTION, REWARD_LOOK_AHEAD, T_SEQUENCE,
+    TOTAL_ASSET, SINGLE_BUYIN_PORTION, MULTI_BUYIN_PORTION, REWARD_LOOK_AHEAD, T_SEQUENCE,
     RULE_COMPONENTS, USE_RULE_MIXING,
     FEATURE_TYPE, POLICY_TYPE, LSTM_ACT_HIDDEN, MIX_HIDDEN,
     TOTAL_STEPS_PER_ENV, N_STEPS, BATCH_SIZE, N_EPOCHS,
     GAMMA, GAE_LAMBDA, CLIP_RANGE, ENT_COEF, VF_COEF, MAX_GRAD_NORM, SEED,
-    EVAL_EVERY, USE_WANDB, WANDB_PROJECT, CACHE_DIR, ETF_BENCH,
+    EVAL_EVERY, USE_WANDB, WANDB_PROJECT, CACHE_DIR, ETF_BENCH, LEARNING_RATE,
 )
 from data_utils import (
     load_panel_cached, add_indicators, slice_with_history,
@@ -102,7 +101,8 @@ def main():
 
         # env / econ
         total_asset=TOTAL_ASSET,
-        buyin_portion=BUYIN_PORTION,
+        single_buyin_portion=SINGLE_BUYIN_PORTION,
+        multi_buying_portion=MULTI_BUYIN_PORTION,
         lookahead=REWARD_LOOK_AHEAD,
         T=T_SEQUENCE,
 
@@ -118,6 +118,7 @@ def main():
 
         # train
         total_steps_per_env=TOTAL_STEPS_PER_ENV,
+        learning_rate=LEARNING_RATE,
         n_steps=N_STEPS, batch_size=BATCH_SIZE, n_epochs=N_EPOCHS,
         gamma=GAMMA, gae_lambda=GAE_LAMBDA, clip_range=CLIP_RANGE,
         ent_coef=ENT_COEF, vf_coef=VF_COEF, max_grad_norm=MAX_GRAD_NORM,
@@ -145,7 +146,7 @@ def main():
     def make_env_for_split(ticker: str, start: str, end: str):
         df_t = df_all[[c for c in df_all.columns if c[1] == ticker]]
         df_ext, start_at = slice_with_history(df_t, start, end, cfg["T"])
-        return make_wrapped_env(df_ext, ticker, cfg["total_asset"], cfg["buyin_portion"],
+        return make_wrapped_env(df_ext, ticker, cfg["total_asset"], cfg["single_buyin_portion"],
                                 cfg["lookahead"], cfg["T"], start_at, cfg["rule_components"])
 
     train_envs = [
@@ -157,13 +158,14 @@ def main():
     # -------------------- Build policy/algo --------------------
     policy_class, algo_class, policy_kwargs = build_policy_and_kwargs(cfg)
 
+    import wandb
     if cfg["use_wandb"] and getattr(wandb, "run", None) is None:
         wandb.init(project=cfg["project"], config={**cfg}, reinit="return_previous")
 
     model = algo_class(
         policy=policy_class,
         env=vec_train,
-        learning_rate=3e-4,
+        learning_rate=cfg["learning_rate"],
         n_steps=cfg["n_steps"],
         batch_size=cfg["batch_size"],
         n_epochs=cfg["n_epochs"],
@@ -184,7 +186,7 @@ def main():
         df_val_full=df_val_full,
         val_tickers=cfg["val_tickers"],
         total_asset=cfg["total_asset"],
-        buyin_portion=cfg["buyin_portion"],
+        buyin_portion=cfg["multi_buying_portion"],
         lookahead=cfg["lookahead"],
         T=cfg["T"],
         start=cfg["val_start"], end=cfg["val_end"],
@@ -207,7 +209,7 @@ def main():
         df_full=df_all,
         tickers=cfg["val_tickers"],
         total_asset=cfg["total_asset"],
-        buyin_portion=cfg["buyin_portion"],
+        buyin_portion=cfg["multi_buying_portion"],
         lookahead=cfg["lookahead"],
         T=cfg["T"],
         split_name="val",
@@ -224,7 +226,7 @@ def main():
         df_full=df_all,
         tickers=cfg["test_tickers"],
         total_asset=cfg["total_asset"],
-        buyin_portion=cfg["buyin_portion"],
+        buyin_portion=cfg["multi_buying_portion"],
         lookahead=cfg["lookahead"],
         T=cfg["T"],
         split_name="test",
@@ -235,12 +237,27 @@ def main():
         log_wandb=cfg["use_wandb"],
     )
 
+    # Log summaries (still include full dict, plus explicit avg convenience keys)
     if cfg["use_wandb"]:
+        import wandb
         wandb.log({"val/summary": val_results})
         wandb.log({"test/summary": test_results})
+        # Convenience explicit avg keys for quick dashboards
+        if "avg" in val_results:
+            for k, v in val_results["avg"].items():
+                wandb.log({f"val/avg/{k}": v})
+        if "avg" in test_results:
+            for k, v in test_results["avg"].items():
+                wandb.log({f"test/avg/{k}": v})
         wandb.finish()
 
     print("Saved model → clstm_ppo_rule_aug_single_asset.zip; plots → ./figures/")
+
+    # ---- Return averages for potential Optuna integration
+    return {
+        "val_avg":  val_results.get("avg", {}),
+        "test_avg": test_results.get("avg", {}),
+    }
 
 
 if __name__ == "__main__":

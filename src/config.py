@@ -20,7 +20,8 @@ INTERVAL = "1d"
 
 # ---------- Env / economics ----------
 TOTAL_ASSET    = 1_000_000.0
-BUYIN_PORTION  = 0.2
+SINGLE_BUYIN_PORTION  = 1.0
+MULTI_BUYIN_PORTION  = 0.2
 REWARD_LOOK_AHEAD = 0  # 20
 
 # Rolling history length T for (T, D) sequences
@@ -29,20 +30,24 @@ T_SEQUENCE = 30  # history length T (no warm-up forced; we pre-slice with real p
 # ---------- Rule-mixing ----------
 # Set an empty list [] to disable rule-mixing entirely
 RULE_COMPONENTS = ["sma", "rsi_ma"]
-USE_RULE_MIXING = True
+USE_RULE_MIXING = False
 
 # ---------- Algo / nets ----------
 FEATURE_TYPE = "lstm"       # "lstm" or "mlp"   (feature extractor)
+# FEATURE_TYPE = "mlp"       # "lstm" or "mlp"   (feature extractor)
 POLICY_TYPE  = "recurrent"  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
+# POLICY_TYPE  = "mlp"  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
 
 LSTM_ACT_HIDDEN = 512       # actor/critic recurrent body hidden size (sb3-contrib)
 MIX_HIDDEN      = 64        # hidden width for the mixing MLP (latent_pi -> 1+K)
 
 # ---------- PPO ----------
-# TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
-TOTAL_STEPS_PER_ENV = 1_000  # multiplied by number of training envs
+# steps_per_iteration = n_steps * num_envs
+# iterations = total_timesteps / steps_per_iteration = total_timesteps_per_env / n_steps
+TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
 N_STEPS     = 128
 BATCH_SIZE  = 128
+LEARNING_RATE = 3e-4
 N_EPOCHS    = 10
 GAMMA       = 0.99
 GAE_LAMBDA  = 0.95
@@ -50,11 +55,11 @@ CLIP_RANGE  = 0.2
 ENT_COEF    = 0.01
 VF_COEF     = 0.5
 MAX_GRAD_NORM = 0.5
+# MAX_GRAD_NORM = 1e8
 SEED        = 42
 
 # ---------- Logging / cache ----------
-# EVAL_EVERY = 20_000     # periodic eval steps
-EVAL_EVERY = 1_000     # periodic eval steps
+EVAL_EVERY = 40_000     # periodic eval steps
 USE_WANDB  = True
 WANDB_PROJECT = "clstm_ppo_rule_aug"
 

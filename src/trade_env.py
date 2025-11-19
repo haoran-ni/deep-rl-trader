@@ -126,10 +126,8 @@ class TradeEnv(gym.Env):
                 sell_price = open_price
                 # shares is a positive integer number
                 holding_shares = self.portfolio.holdings_info[ticker]["shares"]
-                print(f"Holding shares of {ticker}: {holding_shares}")
                 if holding_shares > 0:
                     shares = max(1.0, np.floor(holding_shares * (-actions[i])))
-                    print(f"Selling shares of {ticker}: {shares}")
                     revenue = self._sell_shares(shares, sell_price)  # revenue after fees
                     self.portfolio.update_cash(revenue)
                     self.portfolio.update_trade_history(self.current_tick, 'SELL', ticker, shares, sell_price)
