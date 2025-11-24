@@ -110,7 +110,7 @@ class TradeEnv(gym.Env):
             if actions[i] > 0: # e.g. action = 0.5, buy in with 0.5*BUYIN_UNIT
                 # buy in at the open price of the next tick
                 buyin_price = open_price
-                buyin_money = self.buyin_portion * self.portfolio.cash
+                buyin_money = self.buyin_portion * self.portfolio.realized_cash
                 # only buy in integer shares
                 shares, actual_buyin_money = self._buyin_shares(buyin_money, buyin_price)
                 self.portfolio.update_cash(-actual_buyin_money)
@@ -226,6 +226,7 @@ class Portfolio:
                                        "average_price": 0.0,
                                        "returns": 0.0} for ticker in tickers}
         self.cash = cash
+        self.realized_cash = cash # cash including realized profits/losses
         self.total_value = cash
         self.total_value_history = pd.DataFrame(columns=['Total Value'])
         self.trade_history = {ticker: [] for ticker in tickers}
@@ -272,6 +273,7 @@ class Portfolio:
         realized = None
         if action == 'SELL':
             realized = (price*(1-self.fee_rate)-self.holdings_info[ticker]["average_price"]) * shares
+            self.realized_cash += realized
         self.trade_history[ticker].append({"date": date,
                                            "action": action,
                                            "shares": shares,
