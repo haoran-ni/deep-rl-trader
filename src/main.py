@@ -75,7 +75,7 @@ df_baseline = yf.download("QQQ", start=df.index[0], end=end_date, interval=inter
 
 # ------------------------ run trading simulation ------------------------
 TOTAL_ASSET = 1e6
-BUYIN_PORTION = 0.1 # e.g. every buy-in uses $BUYIN_PORTION of current cash
+BUYIN_PORTION = 1/len(tickers) # e.g. every buy-in uses $BUYIN_PORTION of current cash
 
 #strategy = SMAStrategy(short_term_sma=df['SMA_50'], long_term_sma=df['SMA_200'])
 strategy = RsiMAStrategy(rsi=df['RSI_14'], rsi_ma=df['RSI_14_MA_7'])

@@ -63,7 +63,7 @@ class TradeEnv(gym.Env):
 
         # trading related
         self.initial_cash = cash
-        self.portfolio = Portfolio(tickers, cash=cash, fee_rate=fee_rate)
+        self.portfolio = Portfolio(tickers, cash=cash, fee_rate=fee_rate, buyin_portion=self.buyin_portion)
         
         # progression related
         if start_at is None:
@@ -113,7 +113,7 @@ class TradeEnv(gym.Env):
                 buyin_money = self.buyin_portion * self.portfolio.realized_cash
                 # only buy in integer shares
                 shares, actual_buyin_money = self._buyin_shares(buyin_money, buyin_price)
-                self.portfolio.update_cash(-actual_buyin_money)
+                self.portfolio.update_cash(-actual_buyin_money, ticker)
                 if self.portfolio.cash_enough:
                     self.portfolio.update_trade_history(self.current_tick, 'BUY', ticker, shares, buyin_price)
                     self.portfolio.update_holdings(ticker, shares, buyin_price)
@@ -129,7 +129,7 @@ class TradeEnv(gym.Env):
                 if holding_shares > 0:
                     shares = max(1.0, np.floor(holding_shares * (-actions[i])))
                     revenue = self._sell_shares(shares, sell_price)  # revenue after fees
-                    self.portfolio.update_cash(revenue)
+                    self.portfolio.update_cash(revenue, ticker)
                     self.portfolio.update_trade_history(self.current_tick, 'SELL', ticker, shares, sell_price)
                     self.portfolio.update_holdings(ticker, -shares, sell_price)
                 else:
@@ -212,7 +212,7 @@ class TradeEnv(gym.Env):
 
 
 class Portfolio:
-    def __init__(self, tickers, cash=1000000.0, fee_rate=0.001):
+    def __init__(self, tickers, cash=1000000.0, fee_rate=0.001, buyin_portion=0.1):
         # initialize holdings for each ticker
         self.tickers = tickers
         # initial_shares is used to calculate rewards later
@@ -232,6 +232,7 @@ class Portfolio:
         self.trade_history = {ticker: [] for ticker in tickers}
         self.cash_enough = True
         self.fee_rate = fee_rate
+        self.buyin_portion = buyin_portion
     
     def step(self, tick, current_prices):
         self.total_value = self.cash
@@ -247,10 +248,21 @@ class Portfolio:
             average_price = self.holdings_info[ticker]["average_price"]
             self.holdings_info[ticker]["returns"] = (current_price - average_price) / average_price
 
-    def update_cash(self, amount):
-        self.cash_enough = False if self.cash + amount < 0 else True
-        if self.cash_enough:
+    def update_cash(self, amount, ticker):
+        if amount > 0:
             self.cash += amount
+        else:
+            self.cash_enough = True
+            
+            if self.holdings_info[ticker]["shares"] > 0:
+                if self.holdings_info[ticker]["total_cost"] + abs(amount) > self.buyin_portion * self.realized_cash:
+                    self.cash_enough = False
+                    
+            if self.cash + amount < 0:
+                self.cash_enough = False
+                
+            if self.cash_enough:
+                self.cash += amount
     
     def update_holdings(self, ticker, shares, price):
         if self.holdings_info[ticker]["shares"] == 0.0:
