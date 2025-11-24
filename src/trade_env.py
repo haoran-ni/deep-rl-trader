@@ -13,7 +13,8 @@ class TradeEnv(gym.Env):
                  buyin_portion: float = 0.2,
                  reward_look_ahead: int = 20,
                  start_at: pd.Timestamp | str | None = None,
-                 fee_rate: float = 0.001):
+                 fee_rate: float = 0.001,
+                 eval_mode: bool = False):
         
         super().__init__()
         
@@ -25,6 +26,7 @@ class TradeEnv(gym.Env):
         # This is used to record the last action for each ticker, used by the strategy outside this env
         self.last_action = np.zeros(len(tickers), dtype=np.float32)
         self.fee_rate = fee_rate
+        self.eval_mode = eval_mode
 
         # reward related
         self.reward_look_ahead = reward_look_ahead
@@ -63,7 +65,7 @@ class TradeEnv(gym.Env):
 
         # trading related
         self.initial_cash = cash
-        self.portfolio = Portfolio(tickers, cash=cash, fee_rate=fee_rate, buyin_portion=self.buyin_portion)
+        self.portfolio = Portfolio(tickers, cash=cash, fee_rate=fee_rate, buyin_portion=self.buyin_portion, eval_mode=eval_mode)
         
         # progression related
         if start_at is None:
@@ -84,7 +86,7 @@ class TradeEnv(gym.Env):
         # TODO: reset will randomly sample a ticker during training
         self.current_tick = self.start_time
         self.i_current_tick = self.i_start
-        self.portfolio = Portfolio(self.tickers, cash=self.initial_cash)
+        self.portfolio = Portfolio(self.tickers, cash=self.initial_cash, eval_mode=self.eval_mode)
         return self._get_observation(self.current_tick), {}
 
     def step(self, actions: np.ndarray):
@@ -110,7 +112,10 @@ class TradeEnv(gym.Env):
             if actions[i] > 0: # e.g. action = 0.5, buy in with 0.5*BUYIN_UNIT
                 # buy in at the open price of the next tick
                 buyin_price = open_price
-                buyin_money = self.buyin_portion * self.portfolio.realized_cash
+                if self.eval_mode:
+                    buyin_money = actions[i] * self.buyin_portion * self.portfolio.holdings_info[ticker]["cash"]
+                else:
+                    buyin_money = actions[i] * self.buyin_portion * self.portfolio.realized_cash
                 # only buy in integer shares
                 shares, actual_buyin_money = self._buyin_shares(buyin_money, buyin_price)
                 self.portfolio.update_cash(-actual_buyin_money, ticker)
@@ -165,8 +170,8 @@ class TradeEnv(gym.Env):
                 "RSI_200": np.array([self.data.loc[tick]["RSI_200"][ticker]], dtype=np.float32),
                 "RSI_14_MA_7": np.array([self.data.loc[tick]["RSI_14_MA_7"][ticker]], dtype=np.float32),
                 # portfolio related
-                "cash": self.portfolio.cash,
-                "total_value": self.portfolio.total_value,
+                "cash": self.portfolio.holdings_info[ticker]["cash"] if self.eval_mode else self.portfolio.cash,
+                "total_value": self.portfolio.holdings_info[ticker]["total_value"] if self.eval_mode else self.portfolio.total_value,
                 "shares": self.portfolio.holdings_info[ticker]["shares"],
                 "average_price": self.portfolio.holdings_info[ticker]["average_price"],
                 "returns": self.portfolio.holdings_info[ticker]["returns"],
@@ -212,19 +217,30 @@ class TradeEnv(gym.Env):
 
 
 class Portfolio:
-    def __init__(self, tickers, cash=1000000.0, fee_rate=0.001, buyin_portion=0.1):
+    def __init__(self, tickers, cash=1000000.0, fee_rate=0.001, buyin_portion=0.1, eval_mode=False):
         # initialize holdings for each ticker
+        self.eval_mode = eval_mode
         self.tickers = tickers
         # initial_shares is used to calculate rewards later
         # we will scale the rewards based on shares/initial_shares
         # e.g. if the model decides to add position on a ticker, the rewards will be scaled up accordingly
         # e.g. if the model decides to reduce position on a ticker, the rewards will be scaled down accordingly
         # Using this, we hope the model can learn to adjust its positions
-        self.holdings_info = {ticker: {"initial_shares": 0.0,
-                                       "shares": 0.0,
-                                       "total_cost": 0.0,
-                                       "average_price": 0.0,
-                                       "returns": 0.0} for ticker in tickers}
+        if self.eval_mode:
+            self.holdings_info = {ticker: {"cash": cash/len(tickers),
+                                           "total_value": cash,
+                                           "initial_shares": 0.0,
+                                           "shares": 0.0,
+                                           "total_cost": 0.0,
+                                           "average_price": 0.0,
+                                           "returns": 0.0} for ticker in tickers}
+        else:
+            self.holdings_info = {ticker: {"initial_shares": 0.0,
+                                           "shares": 0.0,
+                                           "total_cost": 0.0,
+                                           "average_price": 0.0,
+                                           "returns": 0.0} for ticker in tickers}
+            
         self.cash = cash
         self.realized_cash = cash # cash including realized profits/losses
         self.total_value = cash
@@ -232,8 +248,8 @@ class Portfolio:
         self.trade_history = {ticker: [] for ticker in tickers}
         self.cash_enough = True
         self.fee_rate = fee_rate
-        self.buyin_portion = buyin_portion
-    
+        self.buyin_portion = buyin_portion # set buyin portion as 1 for eval mode
+        
     def step(self, tick, current_prices):
         self.total_value = self.cash
         for ticker, current_price in current_prices.items():
@@ -249,20 +265,41 @@ class Portfolio:
             self.holdings_info[ticker]["returns"] = (current_price - average_price) / average_price
 
     def update_cash(self, amount, ticker):
-        if amount > 0:
-            self.cash += amount
-        else:
-            self.cash_enough = True
-            
-            if self.holdings_info[ticker]["shares"] > 0:
-                if self.holdings_info[ticker]["total_cost"] + abs(amount) > self.buyin_portion * self.realized_cash:
+        # eval mode
+        if self.eval_mode:
+            if amount > 0:
+                self.holdings_info[ticker]["cash"] += amount
+                self.cash += amount
+            else:
+                self.cash_enough = True
+                
+                if self.holdings_info[ticker]["shares"] > 0:
+                    if self.holdings_info[ticker]["total_cost"] + abs(amount) > self.buyin_portion * self.holdings_info[ticker]["cash"]:
+                        self.cash_enough = False
+                        
+                if self.holdings_info[ticker]["cash"] + amount < 0:
                     self.cash_enough = False
                     
-            if self.cash + amount < 0:
-                self.cash_enough = False
-                
-            if self.cash_enough:
+                if self.cash_enough:
+                    self.holdings_info[ticker]["cash"] += amount
+                    self.cash += amount
+                    
+        # normal mode
+        else:
+            if amount > 0:
                 self.cash += amount
+            else:
+                self.cash_enough = True
+            
+                if self.holdings_info[ticker]["shares"] > 0:
+                    if self.holdings_info[ticker]["total_cost"] + abs(amount) > self.buyin_portion * self.realized_cash:
+                        self.cash_enough = False
+                        
+                if self.cash + amount < 0:
+                    self.cash_enough = False
+                    
+                if self.cash_enough:
+                    self.cash += amount
     
     def update_holdings(self, ticker, shares, price):
         if self.holdings_info[ticker]["shares"] == 0.0:
@@ -296,3 +333,6 @@ class Portfolio:
         # note that for the total value, transaction fees are not considered because
         # the fee is only applied when TRANSACTION happens
         self.total_value += self.holdings_info[ticker]["shares"] * current_price
+        
+        if self.eval_mode:
+            self.holdings_info[ticker]["total_value"] = self.holdings_info[ticker]["cash"] + self.holdings_info[ticker]["shares"] * current_price
