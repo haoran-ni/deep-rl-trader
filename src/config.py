@@ -1,3 +1,81 @@
+# config.py
+from __future__ import annotations
+
+# ---------- Data ranges ----------
+TRAIN_START = "2005-01-01"
+TRAIN_END   = "2018-12-31"
+
+VAL_START   = "2019-01-01"
+VAL_END     = "2020-12-31"
+
+TEST_START  = "2021-01-01"
+TEST_END    = "2024-12-31"
+
+# A little buffer for cached downloads so we can pre-pad T-1 history
+CACHE_DOWNLOAD_START = "2004-01-01"
+CACHE_DOWNLOAD_END   = "2024-12-31"
+
+INTERVAL = "1d"
+
+# ---------- Env / economics ----------
+TOTAL_ASSET    = 1_000_000.0
+SINGLE_BUYIN_PORTION  = 1.0
+MULTI_BUYIN_PORTION  = 1.0
+REWARD_LOOK_AHEAD = 0  # 20
+
+# Rolling history length T for (T, D) sequences
+T_SEQUENCE = 30  # history length T (no warm-up forced; we pre-slice with real past)
+
+# ---------- Rule strategies ----------
+# (A) Strategies used as *augmenting signals* mixed into the policy during train/eval
+MIX_RULE_COMPONENTS = [
+    "sma",
+    "rsi_ma"
+]       # [] disables rule mixing
+USE_RULE_MIXING     = True
+
+# (B) Strategies used as *baselines in final plots* (comparison against RL & QQQ)
+COMPARE_RULE_BASELINES = [
+    "sma",
+    "rsi_ma"
+]    # [] to disable plotting rule baselines
+
+# ---------- Algo / nets ----------
+FEATURE_TYPE = "lstm"       # "lstm" or "mlp"   (feature extractor)
+# FEATURE_TYPE = "mlp"       # "lstm" or "mlp"   (feature extractor)
+POLICY_TYPE  = "recurrent"  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
+# POLICY_TYPE  = "mlp"  # "recurrent" (RecurrentPPO) or "mlp" (PPO)
+
+LSTM_ACT_HIDDEN = 512       # actor/critic recurrent body hidden size (sb3-contrib)
+MIX_HIDDEN      = 64        # hidden width for the mixing MLP (latent_pi -> 1+K)
+
+# ---------- PPO ----------
+# steps_per_iteration = n_steps * num_envs
+# iterations = total_timesteps / steps_per_iteration = total_timesteps_per_env / n_steps
+TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
+# TOTAL_STEPS_PER_ENV = 10_000  # multiplied by number of training envs
+N_STEPS     = 128
+BATCH_SIZE  = 128
+LEARNING_RATE = 3e-4
+N_EPOCHS    = 10
+GAMMA       = 0.99
+GAE_LAMBDA  = 0.95
+CLIP_RANGE  = 0.2
+ENT_COEF    = 0.01
+VF_COEF     = 0.5
+MAX_GRAD_NORM = 0.5
+# MAX_GRAD_NORM = 1e8
+SEED        = 42
+
+# ---------- Logging / cache ----------
+EVAL_EVERY   = 40_000
+# EVAL_EVERY   = 5_000
+USE_WANDB    = True
+WANDB_PROJECT = "clstm_ppo_rule_aug"
+
+CACHE_DIR  = "data_cache"
+ETF_BENCH  = "QQQ"       # used for plots; cached too
+
 ######## Date Ranges ########
 
 TRAIN_START_DATE = "2005-01-01"

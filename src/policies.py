@@ -1,15 +1,14 @@
 # policies.py
 from __future__ import annotations
+
 from typing import Optional, Type
+
 import numpy as np
 import torch
 import torch.nn as nn
 from gymnasium import spaces
-
 from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 from stable_baselines3.common.policies import ActorCriticPolicy
-
-from features import PreLSTMFeaturesSingle, PreMLPFeaturesSingle
 
 
 # ---------- small helper: ensure extractor sees "use_rule_mixing" ----------

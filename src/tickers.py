@@ -3,6 +3,15 @@
 
 SINGLE_TICKER = ["AAPL"]
 
+MULTIPLE_TICKERS = [
+    "NVDA",
+    "AAPL",
+    "MSFT",
+    "AMZN",
+    # "GOOGL",
+    # "META",
+]
+
 QQQ_TICKERS = [
     "NVDA",
     "AAPL",

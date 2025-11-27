@@ -1,225 +1,243 @@
 # eval_utils.py
 from __future__ import annotations
-from typing import List, Tuple, Dict, Any
+from pathlib import Path
+from typing import Dict, List, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import yfinance as yf
-from sb3_contrib import RecurrentPPO
+
+from data_utils import (
+    slice_with_history, make_multi_env, build_strategies_multi
+)
+from wrappers import (
+    RollingSeq, reg_keys_for, flatten_regular, compute_rule_stack
+)
+
+# ------------------------- small helpers -------------------------
+
+def year_ranges(start: str, end: str) -> List[Tuple[pd.Timestamp, pd.Timestamp]]:
+    s = pd.Timestamp(start).normalize()
+    e = pd.Timestamp(end).normalize()
+    years = []
+    y = s.year
+    while pd.Timestamp(year=y, month=1, day=1) <= e:
+        y_start = max(pd.Timestamp(year=y, month=1, day=1), s)
+        y_end = min(pd.Timestamp(year=y, month=12, day=31), e)
+        if y_start <= y_end:
+            years.append((y_start, y_end))
+        y += 1
+    return years
 
 
-def _predict_step(model, obs, recurrent_state, episode_starts, deterministic: bool):
-    if isinstance(model, RecurrentPPO):
-        action, recurrent_state = model.predict(
-            obs, state=recurrent_state, episode_start=episode_starts, deterministic=deterministic
-        )
-        return action, recurrent_state
-    else:
-        action, _ = model.predict(obs, deterministic=deterministic)
-        return action, None
+def plot_total_value_curves(curves: Dict[str, Tuple[List, List]] , title: str, out_path: str) -> str:
+    """
+    curves: name -> (dates, values) ; plots only total portfolio value.
+    """
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(11, 5), dpi=150)
+    df = pd.DataFrame({
+        name: pd.Series(vals, index=pd.to_datetime(dates))
+        for name, (dates, vals) in curves.items()
+    }).sort_index().ffill()
+    ax = plt.gca()
+    df.plot(ax=ax, linewidth=1.6)
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Total Portfolio Value ($)")
+    plt.grid(True, linewidth=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+    return out_path
 
 
-def rollout_collect(model, env, deterministic: bool = True):
-    # reset handling (obs or (obs, info))
+# ------------------------- RL rollout on multi-ticker env -------------------------
+
+def rollout_multi_total_with_model(
+    model,
+    env,
+    df_ext: pd.DataFrame,
+    tickers: List[str],
+    T: int,
+    strategies,  # list of strategies to compute rule components
+) -> Tuple[List, List]:
+    """
+    Drive a multi-ticker TradeEnv using a SINGLE-ASSET policy by generating one action per ticker.
+    DRY: reuses RollingSeq, reg_keys_for, flatten_regular and compute_rule_stack.
+    Returns (dates, total_values)
+    """
+    # Init per-ticker rolling builders + RNN states
+    obs_space = env.observation_space
+    reg_keys_map = {t: reg_keys_for(obs_space, t) for t in tickers}
+    seqs = {t: RollingSeq(T) for t in tickers}
+    rnn_states = {t: None for t in tickers}
+    episode_flags = {t: np.array([True], dtype=bool) for t in tickers}
+
+    # Reset env → initial raw nested obs; pre-fill each (T,D) with the first frame
     ret = env.reset()
-    obs = ret[0] if isinstance(ret, tuple) and len(ret) == 2 else ret
+    raw = ret[0] if isinstance(ret, tuple) and len(ret) == 2 else ret
+    for t in tickers:
+        v = flatten_regular(raw, obs_space, t, reg_keys_map[t])
+        seqs[t].fill_with(v)
 
-    rnn_state = None
-    episode_starts = np.array([True], dtype=bool)
     done = False
-
-    dates: List[pd.Timestamp] = []
-    portfolio_values: List[float] = []
-    shares_list: List[float] = []
-    prices_list: List[float] = []
-
-    # discover base env and ticker
-    base_env = env.env if hasattr(env, "env") else env
-    ticker = getattr(env, "ticker", None)
-    if ticker is None and hasattr(base_env, "tickers"):
-        ticker = base_env.tickers[0]
-
     while not done:
-        # record before stepping (portfolio history is updated at env.step)
-        # use last known total value
-        try:
-            tv_df = base_env.portfolio.total_value_history
-            if len(tv_df) > 0:
-                dates.append(tv_df.index[-1])
-                portfolio_values.append(float(tv_df.iloc[-1, 0]))
-                shares_list.append(float(base_env.portfolio.holdings_info[ticker]["shares"]))
-                prices_list.append(float(base_env.data.loc[tv_df.index[-1]]["Close"][ticker]))
-        except Exception:
-            pass
+        # Compute rule stack (K, n_tickers) once per time-step
+        rule_stack = compute_rule_stack(
+            strategies,
+            tick=env.current_tick,
+            itick=env.i_current_tick,
+            portfolio=env.portfolio,
+            n_tickers=len(tickers),
+        )
 
-        action, rnn_state = _predict_step(model, obs, rnn_state, episode_starts, deterministic)
-        obs, reward, terminated, truncated, info = env.step(action)
+        # Predict one action per ticker
+        actions = np.zeros((len(tickers),), dtype=np.float32)
+        for i, t in enumerate(tickers):
+            obs = {"seq_regular": seqs[t].array()}
+            if rule_stack is not None:
+                obs["rule_actions"] = rule_stack[:, i]  # (K,)
+            act, rnn_states[t] = model.predict(
+                obs, state=rnn_states[t], episode_start=episode_flags[t], deterministic=True
+            )
+            actions[i] = float(np.squeeze(act))
+            episode_flags[t][:] = False
+
+        # Step env with the FULL action vector
+        raw, reward, terminated, truncated, info = env.step(actions)
         done = bool(terminated) or bool(truncated)
-        episode_starts[:] = done
 
-    # final record if missing last tick
-    try:
-        tv_df = base_env.portfolio.total_value_history
-        if len(dates) == 0 or tv_df.index[-1] != dates[-1]:
-            dates.append(tv_df.index[-1])
-            portfolio_values.append(float(tv_df.iloc[-1, 0]))
-            shares_list.append(float(base_env.portfolio.holdings_info[ticker]["shares"]))
-            prices_list.append(float(base_env.data.loc[tv_df.index[-1]]["Close"][ticker]))
-    except Exception:
-        pass
+        # Push next frame into each ticker's rolling window
+        for t in tickers:
+            v = flatten_regular(raw, obs_space, t, reg_keys_map[t])
+            seqs[t].push(v)
 
-    return dates, portfolio_values, shares_list, prices_list
-
-
-def evaluate_rl_only(model, env):
-    """
-    Lightweight, RL-only evaluation for periodic callback (no plotting, no downloads).
-    Returns (dates, values).
-    """
-    dates, values, _, _ = rollout_collect(model, env, deterministic=True)
+    # Read portfolio history
+    hist = env.portfolio.total_value_history
+    dates = hist.index.to_list()
+    values = hist["Total Value"].astype(float).to_list()
     return dates, values
 
 
-def eval_rule_baseline(df, ticker: str, total_asset: float, buyin_portion: float, lookahead: int):
-    # re-use your TradeEnv/SMAStrategy (no learning)
-    from trade_env import TradeEnv
-    from rule_based_strategy import SMAStrategy
-
-    env = TradeEnv(
-        data=df,
-        tickers=[ticker],
-        cash=total_asset,
-        buyin_portion=buyin_portion,
-        reward_look_ahead=lookahead,
-    )
-    strat = SMAStrategy(short_term_sma=df['SMA_50'][[ticker]], long_term_sma=df['SMA_200'][[ticker]])
-
-    obs = env.reset()
+def rollout_multi_total_with_rule_only(
+    df_ext: pd.DataFrame,
+    tickers: List[str],
+    total_asset: float,
+    buyin_portion: float,
+    lookahead: int,
+    start_at: pd.Timestamp,
+    strategy,
+) -> Tuple[List, List]:
+    """
+    Drive a multi-ticker TradeEnv using a single *rule* strategy only.
+    """
+    env = make_multi_env(df_ext, tickers, total_asset, buyin_portion, lookahead, start_at)
+    _ = env.reset()
     done = False
-    dates: List[pd.Timestamp] = []
-    portfolio_values: List[float] = []
-    shares_list: List[float] = []
-
     while not done:
-        # record before step
-        tv = env.portfolio.total_value_history
-        if len(tv) > 0:
-            dates.append(tv.index[-1])
-            portfolio_values.append(float(tv.iloc[-1, 0]))
-            shares_list.append(float(env.portfolio.holdings_info[ticker]["shares"]))
+        actions = strategy.trade(env.current_tick, env.i_current_tick, env.portfolio).astype(np.float32)  # (n_tickers,)
+        raw, reward, terminated, truncated, info = env.step(actions)
+        strategy.last_action = env.last_action
+        done = bool(terminated) or bool(truncated)
 
-        actions = strat.trade(env.current_tick).astype(np.float32)
-        obs, reward, terminated, truncated, info = env.step(actions)
-        strat.last_action = env.last_action
-        done = bool(truncated)
-
-    # final record
-    tv = env.portfolio.total_value_history
-    if len(dates) == 0 or tv.index[-1] != dates[-1]:
-        dates.append(tv.index[-1])
-        portfolio_values.append(float(tv.iloc[-1, 0]))
-        shares_list.append(float(env.portfolio.holdings_info[ticker]["shares"]))
-
-    return dates, portfolio_values, shares_list
+    hist = env.portfolio.total_value_history
+    dates = hist.index.to_list()
+    values = hist["Total Value"].astype(float).to_list()
+    return dates, values
 
 
-def qqq_curve(start_ts, end_ts, start_value, interval: str = "1d"):
-    q = yf.download(["QQQ"], start=start_ts, end=end_ts, interval=interval, auto_adjust=True).dropna()
-    ser = q['Close']['QQQ'].astype(float)
-    norm = ser / ser.iloc[0] * float(start_value)
-    return norm.index.to_list(), norm.to_list()
+# ------------------------- yearly evaluation (multi-ticker) -------------------------
 
-
-# ---------- plotting ----------
-
-def plot_value_three(d_rl, v_rl, d_rule, v_rule, d_qqq, v_qqq, title: str, out_path: str):
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    plt.figure(figsize=(11, 5), dpi=150)
-    df = pd.DataFrame({
-        "RL":   pd.Series(v_rl,   index=pd.to_datetime(d_rl)),
-        "Rule": pd.Series(v_rule, index=pd.to_datetime(d_rule)),
-        "QQQ":  pd.Series(v_qqq,  index=pd.to_datetime(d_qqq)),
-    }).sort_index().ffill()
-    ax = plt.gca()
-    df.plot(ax=ax, linewidth=1.5)
-    plt.title(title)
-    plt.xlabel("Time"); plt.ylabel("Portfolio Value ($)")
-    plt.grid(True, linewidth=0.3)
-    plt.tight_layout(); plt.savefig(out_path); plt.close()
-    return out_path
-
-
-def plot_shares_two(d_rl, s_rl, d_rule, s_rule, title: str, out_path: str):
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    plt.figure(figsize=(11, 4), dpi=150)
-    df = pd.DataFrame({
-        "RL_shares":   pd.Series(s_rl,   index=pd.to_datetime(d_rl)),
-        "Rule_shares": pd.Series(s_rule, index=pd.to_datetime(d_rule)),
-    }).sort_index().ffill()
-    ax = plt.gca()
-    df.plot(ax=ax, linewidth=1.2)
-    plt.title(title)
-    plt.xlabel("Time"); plt.ylabel("# Shares")
-    plt.grid(True, linewidth=0.3)
-    plt.tight_layout(); plt.savefig(out_path); plt.close()
-    return out_path
-
-
-def plot_price_one(dates, prices, title: str, out_path: str):
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    plt.figure(figsize=(11, 4), dpi=150)
-    s = pd.Series(prices, index=pd.to_datetime(dates)).sort_index()
-    ax = plt.gca()
-    s.plot(ax=ax, linewidth=1.2)
-    plt.title(title)
-    plt.xlabel("Time"); plt.ylabel("Close Price ($)")
-    plt.grid(True, linewidth=0.3)
-    plt.tight_layout(); plt.savefig(out_path); plt.close()
-    return out_path
-
-
-# ---------- high-level final evaluation (with QQQ & rule baseline) ----------
-
-def evaluate_one_split(model, env, df_split, ticker: str, total_asset: float, split_name: str):
+def evaluate_split_yearly_multi_total(
+    model,
+    df_full: pd.DataFrame,
+    tickers: List[str],
+    total_asset: float,
+    buyin_portion: float,
+    lookahead: int,
+    T: int,
+    split_name: str,
+    start: str,
+    end: str,
+    rule_components: List[str],
+    rule_baselines: List[str],
+    qqq_close_series: pd.Series,  # cached once and reused
+    interval: str = "1d",
+    log_wandb: bool = True,
+) -> Dict:
     """
-    Final evaluation:
-      - RL curve (value, shares, price)
-      - Rule-only baseline curve (value, shares)
-      - QQQ benchmark curve
-      - Writes 3 plots: value (RL/Rule/QQQ), shares (RL/Rule), price
+    For each YEAR in [start, end]:
+      - Total-portfolio RL vs each rule baseline vs QQQ (cached), single plot per year.
+      - Returns are computed as last/first - 1.0 on total portfolio value (per year).
+    Returns:
+      {
+        "per_year": {year: {"rl_return": float, "Rule:<name>_return": float, "QQQ_return": float, ...}},
+        "plots": {year: "figpath"},
+        "avg":   {"rl_return": float, "Rule:<name>_return": float, "QQQ_return": float, ...}  # mean across years
+      }
     """
-    import os
+    import wandb
 
-    d_rl, v_rl, s_rl, p_rl = rollout_collect(model, env, deterministic=True)
-    d_rule, v_rule, s_rule = eval_rule_baseline(
-        df_split, ticker, total_asset, env.env.buyin_portion, env.env.reward_look_ahead
-    )
-    d_qqq, v_qqq = qqq_curve(d_rl[0], d_rl[-1], v_rl[0])
+    results = {"per_year": {}, "plots": {}, "avg": {}}
+    # We'll aggregate per-key yearly returns to compute averages afterwards.
+    aggregator: Dict[str, List[float]] = {}
 
-    os.makedirs("figures", exist_ok=True)
-    out_curv = plot_value_three(d_rl, v_rl, d_rule, v_rule, d_qqq, v_qqq,
-                                f"{split_name.capitalize()} — RL vs Rule vs QQQ",
-                                f"figures/{split_name}_curve.png")
-    out_shar = plot_shares_two(d_rl, s_rl, d_rule, s_rule,
-                               f"{split_name.capitalize()} — Shares (RL vs Rule)",
-                               f"figures/{split_name}_shares.png")
-    out_pric = plot_price_one(d_rl, p_rl,
-                              f"{split_name.capitalize()} — Close Price",
-                              f"figures/{split_name}_price.png")
+    for y_start, y_end in year_ranges(start, end):
+        yr = y_start.year
 
-    return {
-        "value_curve": (d_rl, v_rl),
-        "rule_value_curve": (d_rule, v_rule),
-        "qqq_curve": (d_qqq, v_qqq),
-        "shares_rl": (d_rl, s_rl),
-        "shares_rule": (d_rule, s_rule),
-        "price": (d_rl, p_rl),
-        "paths": {"curve": out_curv, "shares": out_shar, "price": out_pric},
-    }
+        # slice with T-1 prehistory for ALL tickers
+        df_y = df_full[[c for c in df_full.columns if c[1] in tickers]]
+        df_ext, start_at = slice_with_history(df_y, str(y_start.date()), str(y_end.date()), T)
+
+        # Strategies for multi-ticker
+        strategies_mix = build_strategies_multi(df_ext, tickers, rule_components or [])
+        strategies_baseline = build_strategies_multi(df_ext, tickers, rule_baselines or [])
+
+        # RL (multi-ticker env, single-asset policy per ticker) — now uses shared helpers
+        env_rl = make_multi_env(df_ext, tickers, total_asset, buyin_portion, lookahead, start_at)
+        d_rl, v_rl = rollout_multi_total_with_model(model, env_rl, df_ext, tickers, T, strategies_mix)
+
+        # Rule baselines
+        curves = {"RL": (d_rl, v_rl)}
+        for s in strategies_baseline:
+            d_rule, v_rule = rollout_multi_total_with_rule_only(
+                df_ext, tickers, total_asset, buyin_portion, lookahead, start_at, s
+            )
+            curves[f"Rule:{s.name}"] = (d_rule, v_rule)
+
+        # QQQ baseline (cached close → normalize to RL start)
+        s = qqq_close_series.loc[pd.to_datetime(d_rl[0]): pd.to_datetime(d_rl[-1])]
+        v_qqq = (s / s.iloc[0] * float(v_rl[0])).tolist()
+        curves["QQQ"] = (s.index.to_list(), v_qqq)
+
+        # Plot single figure (total value only)
+        out_png = f"figures/{split_name}_{yr}_total_value.png"
+        plot_total_value_curves(curves, f"{split_name.capitalize()} {yr} — Total Value", out_png)
+
+        # ---- compute returns & aggregate
+        stats = {}
+        for k, (_, vals) in curves.items():
+            ret = float(vals[-1] / vals[0] - 1.0)
+            key_name = "rl_return" if k == "RL" else f"{k}_return"
+            stats[key_name] = ret
+            aggregator.setdefault(key_name, []).append(ret)
+
+        results["per_year"][yr] = stats
+        results["plots"][yr] = out_png
+
+        if log_wandb and getattr(wandb, "run", None) is not None:
+            for nm, val in stats.items():
+                wandb.log({f"{split_name}/{yr}/{nm}": val})
+
+            wandb.log({f"{split_name}/{yr}/plot_total": wandb.Image(out_png)})
+
+    # ---- averages across years
+    avg_stats = {k: float(np.mean(vs)) for k, vs in aggregator.items() if len(vs) > 0}
+    results["avg"] = avg_stats
+
+    if log_wandb and getattr(wandb, "run", None) is not None:
+        for nm, val in avg_stats.items():
+            wandb.log({f"{split_name}/avg/{nm}": val})
+
+    return results
