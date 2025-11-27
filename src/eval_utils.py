@@ -161,6 +161,7 @@ def evaluate_split_yearly_multi_total(
     start: str,
     end: str,
     rule_components: List[str],
+    rule_baselines: List[str],
     qqq_close_series: pd.Series,  # cached once and reused
     interval: str = "1d",
     log_wandb: bool = True,
@@ -190,15 +191,16 @@ def evaluate_split_yearly_multi_total(
         df_ext, start_at = slice_with_history(df_y, str(y_start.date()), str(y_end.date()), T)
 
         # Strategies for multi-ticker
-        strategies = build_strategies_multi(df_ext, tickers, rule_components or [])
+        strategies_mix = build_strategies_multi(df_ext, tickers, rule_components or [])
+        strategies_baseline = build_strategies_multi(df_ext, tickers, rule_baselines or [])
 
         # RL (multi-ticker env, single-asset policy per ticker) — now uses shared helpers
         env_rl = make_multi_env(df_ext, tickers, total_asset, buyin_portion, lookahead, start_at)
-        d_rl, v_rl = rollout_multi_total_with_model(model, env_rl, df_ext, tickers, T, strategies)
+        d_rl, v_rl = rollout_multi_total_with_model(model, env_rl, df_ext, tickers, T, strategies_mix)
 
         # Rule baselines
         curves = {"RL": (d_rl, v_rl)}
-        for s in strategies:
+        for s in strategies_baseline:
             d_rule, v_rule = rollout_multi_total_with_rule_only(
                 df_ext, tickers, total_asset, buyin_portion, lookahead, start_at, s
             )

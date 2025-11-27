@@ -203,6 +203,7 @@ def make_wrapped_env(
         buyin_portion=buyin_portion,
         reward_look_ahead=reward_look_ahead,
         start_at=start_at,
+        eval_mode=False,  # training mode
     )
     strategies = build_strategies_single(df, ticker, rule_components or [])
     return SeqObsWithRulesWrapper(env=env, strategies=strategies, time_window=T)
@@ -226,5 +227,6 @@ def make_multi_env(
         buyin_portion=buyin_portion,
         reward_look_ahead=reward_look_ahead,
         start_at=start_at,
+        eval_mode=True,  # eval mode
     )
     return env

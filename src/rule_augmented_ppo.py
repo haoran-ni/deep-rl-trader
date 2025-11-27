@@ -13,7 +13,7 @@ from config import (
     TRAIN_START, TRAIN_END, VAL_START, VAL_END, TEST_START, TEST_END,
     CACHE_DOWNLOAD_START, CACHE_DOWNLOAD_END, INTERVAL,
     TOTAL_ASSET, SINGLE_BUYIN_PORTION, MULTI_BUYIN_PORTION, REWARD_LOOK_AHEAD, T_SEQUENCE,
-    RULE_COMPONENTS, USE_RULE_MIXING,
+    MIX_RULE_COMPONENTS, COMPARE_RULE_BASELINES, USE_RULE_MIXING,
     FEATURE_TYPE, POLICY_TYPE, LSTM_ACT_HIDDEN, MIX_HIDDEN,
     TOTAL_STEPS_PER_ENV, N_STEPS, BATCH_SIZE, N_EPOCHS,
     GAMMA, GAE_LAMBDA, CLIP_RANGE, ENT_COEF, VF_COEF, MAX_GRAD_NORM, SEED,
@@ -26,7 +26,7 @@ from data_utils import (
 from eval_utils import evaluate_split_yearly_multi_total
 from features import PreLSTMFeaturesSingle, PreMLPFeaturesSingle
 from policies import RuleAugmentedRecurrentPolicySingle, RuleAugmentedMLPPolicySingle
-from tickers import MULTIPLE_TICKERS, QQQ_TICKERS
+from tickers import MULTIPLE_TICKERS, QQQ_TICKERS, SINGLE_TICKER
 
 
 # ------------------------- policy builder -------------------------
@@ -95,6 +95,9 @@ def main():
         train_tickers=MULTIPLE_TICKERS,
         val_tickers=QQQ_TICKERS,
         test_tickers=QQQ_TICKERS,
+        # train_tickers=SINGLE_TICKER,
+        # val_tickers=SINGLE_TICKER,
+        # test_tickers=SINGLE_TICKER,
         train_start=TRAIN_START, train_end=TRAIN_END,
         val_start=VAL_START,     val_end=VAL_END,
         test_start=TEST_START,   test_end=TEST_END,
@@ -108,7 +111,8 @@ def main():
 
         # rule mixing
         use_rule_mixing=USE_RULE_MIXING,
-        rule_components=RULE_COMPONENTS,
+        mix_rule_components=MIX_RULE_COMPONENTS,
+        compare_rule_baselines=COMPARE_RULE_BASELINES,
 
         # policy/feature
         feature_type=FEATURE_TYPE,
@@ -147,7 +151,7 @@ def main():
         df_t = df_all[[c for c in df_all.columns if c[1] == ticker]]
         df_ext, start_at = slice_with_history(df_t, start, end, cfg["T"])
         return make_wrapped_env(df_ext, ticker, cfg["total_asset"], cfg["single_buyin_portion"],
-                                cfg["lookahead"], cfg["T"], start_at, cfg["rule_components"])
+                                cfg["lookahead"], cfg["T"], start_at, cfg["mix_rule_components"])
 
     train_envs = [
         (lambda t=t: make_env_for_split(t, cfg["train_start"], cfg["train_end"]))
@@ -190,7 +194,7 @@ def main():
         lookahead=cfg["lookahead"],
         T=cfg["T"],
         start=cfg["val_start"], end=cfg["val_end"],
-        rule_components=cfg["rule_components"],
+        rule_components=cfg["mix_rule_components"],   # <— use MIX list in callback
         every_steps=cfg["eval_every"],
         use_wandb=cfg["use_wandb"],
     )
@@ -214,7 +218,8 @@ def main():
         T=cfg["T"],
         split_name="val",
         start=cfg["val_start"], end=cfg["val_end"],
-        rule_components=cfg["rule_components"],
+        rule_components=cfg["mix_rule_components"],
+        rule_baselines=cfg["compare_rule_baselines"],
         qqq_close_series=qqq_close,
         interval=cfg["interval"],
         log_wandb=cfg["use_wandb"],
@@ -231,7 +236,8 @@ def main():
         T=cfg["T"],
         split_name="test",
         start=cfg["test_start"], end=cfg["test_end"],
-        rule_components=cfg["rule_components"],
+        rule_components=cfg["mix_rule_components"],
+        rule_baselines=cfg["compare_rule_baselines"],
         qqq_close_series=qqq_close,
         interval=cfg["interval"],
         log_wandb=cfg["use_wandb"],
@@ -242,7 +248,6 @@ def main():
         import wandb
         wandb.log({"val/summary": val_results})
         wandb.log({"test/summary": test_results})
-        # Convenience explicit avg keys for quick dashboards
         if "avg" in val_results:
             for k, v in val_results["avg"].items():
                 wandb.log({f"val/avg/{k}": v})
