@@ -30,10 +30,10 @@ HIGH_FREQ_TRADE_END_DATE = "2025-11-14"
 ######## Directory Paths ########
 DATA_DICT = {
     "NASDAQ100":{
-        "1D": "dataset/nasdaq100_1d.csv",
-        "1h": "dataset/nasdaq100_1h.csv",
-        "30m": "dataset/nasdaq100_30m.csv",
-        "15m": "dataset/nasdaq100_15m.csv",
+        "1D": "massive_dataset/nasdaq100_1d.csv",
+        "1h": "massive_dataset/nasdaq100_1h.csv",
+        "30m": "massive_dataset/nasdaq100_30m.csv",
+        "15m": "massive_dataset/nasdaq100_15m.csv",
     },
     "DOW30":{
         "1D": "dataset/dow30_1d.csv",
@@ -51,3 +51,9 @@ DATA_DICT = {
 
 import os
 DATA_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+###### API KEYS ########
+MASSIVE_API = "SekkXsjUzVVSYEWYytpKll30sX_CCqlJ"
+AWS_ACCESS_KEY = "b5e171fa-d7cb-41b5-a6b8-d98d227f47ba"
+AWS_SECRET_KEY = "SekkXsjUzVVSYEWYytpKll30sX_CCqlJ"

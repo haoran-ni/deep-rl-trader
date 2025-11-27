@@ -145,6 +145,7 @@ def main():
         from finrl import test
         import yfinance as yf
         import pandas as pd
+        import numpy as np
         
         env = StockTradingEnv
 
@@ -161,7 +162,7 @@ def main():
             drl_lib="stable_baselines3",
             env=env,
             model_name=options.model_name,
-            cwd=os.path.join(model_cwd, "trained_models.zip"), #os.path.join(model_cwd, TRAINED_MODEL_DIR, options.model_name),
+            cwd=os.path.join(model_cwd, TRAINED_MODEL_DIR, options.model_name),
             net_dimension=512,
             if_vix=False,
             data_source_file=os.path.join(DATA_ROOT_DIR, DATA_DICT[options.tickers_group][options.time_interval]),
@@ -171,6 +172,12 @@ def main():
         df_baseline = yf.download("QQQ", start=TEST_START_DATE, end=TEST_END_DATE, interval=options.time_interval, auto_adjust=True)
         baseline_normalized_value = df_baseline['Close'] / df_baseline['Close'].iloc[0]
         totalasset_normalized_value = account_value_erl / account_value_erl[0]
+        if np.abs(len(baseline_normalized_value) - len(totalasset_normalized_value)) == 1:
+            # align lengths by dropping the last entry of the longer series
+            if len(baseline_normalized_value) > len(totalasset_normalized_value):
+                baseline_normalized_value = baseline_normalized_value[:-1]
+            else:
+                totalasset_normalized_value = totalasset_normalized_value[:-1]
         assert len(baseline_normalized_value) == len(totalasset_normalized_value), f"baseline ({len(baseline_normalized_value)}) and test ({len(totalasset_normalized_value)}) account value length not equal!"
         totalasset_normalized_value = pd.DataFrame(totalasset_normalized_value, index=baseline_normalized_value.index, columns=[f'ERL_{options.model_name}'])
         
@@ -180,6 +187,8 @@ def main():
         plt.plot(baseline_normalized_value, label='QQQ')
         plt.xlabel('Time Step')
         plt.ylabel('Total Asset Percentage')
+        plt.xticks(rotation=90)
+        plt.tight_layout()
         plt.legend()
         plt.grid(True)
         plt.savefig(os.path.join(model_cwd,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
@@ -208,6 +217,7 @@ def main():
         from finrl import test
         import yfinance as yf
         import pandas as pd
+        import numpy as np
         
         env = StockTradingEnv
 
@@ -234,6 +244,12 @@ def main():
         df_baseline = yf.download("QQQ", start=TRADE_START_DATE, end=TRADE_END_DATE, interval=options.time_interval, auto_adjust=True)
         baseline_normalized_value = df_baseline['Close'] / df_baseline['Close'].iloc[0]
         totalasset_normalized_value = account_value_erl / account_value_erl[0]
+        if np.abs(len(baseline_normalized_value) - len(totalasset_normalized_value)) == 1:
+            # align lengths by dropping the last entry of the longer series
+            if len(baseline_normalized_value) > len(totalasset_normalized_value):
+                baseline_normalized_value = baseline_normalized_value[:-1]
+            else:
+                totalasset_normalized_value = totalasset_normalized_value[:-1]
         assert len(baseline_normalized_value) == len(totalasset_normalized_value), f"baseline ({len(baseline_normalized_value)}) and test ({len(totalasset_normalized_value)}) account value length not equal!"
         totalasset_normalized_value = pd.DataFrame(totalasset_normalized_value, index=baseline_normalized_value.index, columns=[f'ERL_{options.model_name}'])
         
@@ -245,7 +261,7 @@ def main():
         plt.ylabel('Total Asset Percentage')
         plt.legend()
         plt.grid(True)
-        plt.savefig(os.path.join(model_cwd,RESULTS_DIR, f'account_value_erl_{options.model_name}.png'))
+        plt.savefig(os.path.join(model_cwd,RESULTS_DIR, f'account_value_TRADE_{options.model_name}.png'))
         
     elif options.mode == "download_data":
         time_interval = options.time_interval
