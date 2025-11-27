@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 # ---------- Data ranges ----------
-# Defaults requested by you:
 TRAIN_START = "2005-01-01"
 TRAIN_END   = "2018-12-31"
 
@@ -21,16 +20,25 @@ INTERVAL = "1d"
 # ---------- Env / economics ----------
 TOTAL_ASSET    = 1_000_000.0
 SINGLE_BUYIN_PORTION  = 1.0
-MULTI_BUYIN_PORTION  = 0.2
+MULTI_BUYIN_PORTION  = 1.0
 REWARD_LOOK_AHEAD = 0  # 20
 
 # Rolling history length T for (T, D) sequences
 T_SEQUENCE = 30  # history length T (no warm-up forced; we pre-slice with real past)
 
-# ---------- Rule-mixing ----------
-# Set an empty list [] to disable rule-mixing entirely
-RULE_COMPONENTS = ["sma", "rsi_ma"]
-USE_RULE_MIXING = False
+# ---------- Rule strategies ----------
+# (A) Strategies used as *augmenting signals* mixed into the policy during train/eval
+MIX_RULE_COMPONENTS = [
+    "sma",
+    "rsi_ma"
+]       # [] disables rule mixing
+USE_RULE_MIXING     = True
+
+# (B) Strategies used as *baselines in final plots* (comparison against RL & QQQ)
+COMPARE_RULE_BASELINES = [
+    "sma",
+    "rsi_ma"
+]    # [] to disable plotting rule baselines
 
 # ---------- Algo / nets ----------
 FEATURE_TYPE = "lstm"       # "lstm" or "mlp"   (feature extractor)
@@ -45,6 +53,7 @@ MIX_HIDDEN      = 64        # hidden width for the mixing MLP (latent_pi -> 1+K)
 # steps_per_iteration = n_steps * num_envs
 # iterations = total_timesteps / steps_per_iteration = total_timesteps_per_env / n_steps
 TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
+# TOTAL_STEPS_PER_ENV = 10_000  # multiplied by number of training envs
 N_STEPS     = 128
 BATCH_SIZE  = 128
 LEARNING_RATE = 3e-4
@@ -59,8 +68,9 @@ MAX_GRAD_NORM = 0.5
 SEED        = 42
 
 # ---------- Logging / cache ----------
-EVAL_EVERY = 40_000     # periodic eval steps
-USE_WANDB  = True
+EVAL_EVERY   = 40_000
+# EVAL_EVERY   = 5_000
+USE_WANDB    = True
 WANDB_PROJECT = "clstm_ppo_rule_aug"
 
 CACHE_DIR  = "data_cache"
