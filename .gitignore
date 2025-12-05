@@ -225,3 +225,4 @@ tensorboard_log/
 trained_models/
 *_dataset/
 *test*.py
+*test*.ipynb
