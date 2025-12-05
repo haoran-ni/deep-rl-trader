@@ -98,18 +98,33 @@ class TradeEnv(gym.Env):
 
         self.current_tick = self.start_time # pd.Timestamp
         self.i_current_tick = self.i_start
-        
+
         # truncation related
         if self.truncation_period is not None:
-            # these two variables are updated for each reset
-            self.start_time_for_truncation = self.start_time
-            self.i_start_for_truncation = self.i_start
-            
+            # Calculate available data period (in days)
+            start_date = self.index[self.i_start].date()
             end_date = self.index[-1].date()
-            # ALL TIME CONVERTED TO EASTERN TIME!
-            max_start_date = pd.Timestamp(end_date - pd.Timedelta(days=self.truncation_period)).tz_localize('America/New_York')
-            # valid start indices also considering self.i_start
-            self.valid_start_indices = np.where(self.index <= max_start_date)[0][self.i_start:]
+            available_days = (end_date - start_date).days
+
+            # Smart truncation: if truncation_period >= available data period, disable truncation
+            if self.truncation_period >= available_days:
+                print(f"[TradeEnv] Truncation period ({self.truncation_period} days) >= available data period "
+                      f"({available_days} days). Disabling truncation for this environment.")
+                self.truncation_period = None
+            else:
+                # these two variables are updated for each reset
+                self.start_time_for_truncation = self.start_time
+                self.i_start_for_truncation = self.i_start
+
+                # ALL TIME CONVERTED TO EASTERN TIME!
+                max_start_date = pd.Timestamp(end_date - pd.Timedelta(days=self.truncation_period)).tz_localize('America/New_York')
+                # valid start indices also considering self.i_start
+                self.valid_start_indices = np.where(self.index <= max_start_date)[0][self.i_start:]
+
+                # Additional check: if no valid indices, disable truncation
+                if len(self.valid_start_indices) == 0:
+                    print(f"[TradeEnv] No valid start indices for truncation. Disabling truncation.")
+                    self.truncation_period = None
     
     def reset(self):
         # TODO: reset will randomly sample a ticker during training
