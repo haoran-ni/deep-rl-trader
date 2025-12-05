@@ -209,8 +209,6 @@ __marimo__/
 .DS_Store
 .vscode
 
-test.py
-
 runs/
 *.pkl
 *.pt
