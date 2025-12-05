@@ -23,6 +23,10 @@ interval = "1h"
 tickers = QQQ_TICKERS
 df = yf.download(tickers, start=start_date, end=end_date, interval=interval, auto_adjust=True)
 
+# Or load data from local CSV
+# data_path = "/Volumes/Elements/stock_market_data/nasdaq_100_2025_constituents_processed/1_hour/AAPL_1_hour_2015-12-07_to_2025-12-01.csv"
+# df = pd.read_csv(data_path, index_col=0, header=[0,1], parse_dates=True)
+
 
 # ------------------------ add new indicator columns ------------------------
 # Volume
@@ -84,6 +88,7 @@ env = TradeEnv(data=df,
                tickers=strategy.tickers,
                cash=TOTAL_ASSET,
                buyin_portion=BUYIN_PORTION,
+               truncation_period=None,
                reward_look_ahead=20,
                eval_mode=True)
 
@@ -93,7 +98,7 @@ for _ in range(10000):
     obs, reward, terminated, truncated, info = env.step(actions)
     strategy.last_action = env.last_action
     if truncated:
-        # env.reset()
+        # obs, _ = env.reset()
         # strategy.reset()
         break
 

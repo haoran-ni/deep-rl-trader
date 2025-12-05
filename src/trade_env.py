@@ -11,10 +11,25 @@ class TradeEnv(gym.Env):
                  tickers: list,
                  cash: float = 1000000,
                  buyin_portion: float = 0.2,
+                 truncation_period: int | None = None,
                  reward_look_ahead: int = 20,
                  start_at: pd.Timestamp | str | None = None,
                  fee_rate: float = 0.001,
                  eval_mode: bool = False):
+        
+        """A trading environment for multiple tickers.
+        
+        Args:
+            data (pd.DataFrame): MultiIndex DataFrame with first level as feature names and second level as tickers.
+            tickers (list): List of ticker symbols.
+            cash (float, optional): Initial cash amount. Defaults to 1000000.
+            buyin_portion (float, optional): Portion of cash to use for each buy-in. Defaults to 0.2.
+            truncation_period (int | None, optional): Number of *days* after which the episode is truncated. Defaults to None, no truncation.
+            reward_look_ahead (int, optional): Number of ticks to look ahead for reward calculation. Defaults to 20.
+            start_at (pd.Timestamp | str | None, optional): Start time for the environment. Defaults to None.
+            fee_rate (float, optional): Transaction fee rate. Defaults to 0.001.
+            eval_mode (bool, optional): Evaluation mode flag. Defaults to False.
+        """
         
         super().__init__()
         
@@ -23,6 +38,8 @@ class TradeEnv(gym.Env):
         self.index = data.index
         self.tickers = tickers
         self.buyin_portion = buyin_portion
+        self.truncation_period = truncation_period
+        
         # This is used to record the last action for each ticker, used by the strategy outside this env
         self.last_action = np.zeros(len(tickers), dtype=np.float32)
         self.fee_rate = fee_rate
@@ -81,12 +98,32 @@ class TradeEnv(gym.Env):
 
         self.current_tick = self.start_time # pd.Timestamp
         self.i_current_tick = self.i_start
+        
+        # truncation related
+        if self.truncation_period is not None:
+            # these two variables are updated for each reset
+            self.start_time_for_truncation = self.start_time
+            self.i_start_for_truncation = self.i_start
+            
+            end_date = self.index[-1].date()
+            # ALL TIME CONVERTED TO EASTERN TIME!
+            max_start_date = pd.Timestamp(end_date - pd.Timedelta(days=self.truncation_period)).tz_localize('America/New_York')
+            # valid start indices also considering self.i_start
+            self.valid_start_indices = np.where(self.index <= max_start_date)[0][self.i_start:]
     
     def reset(self):
         # TODO: reset will randomly sample a ticker during training
-        self.current_tick = self.start_time
-        self.i_current_tick = self.i_start
-        self.portfolio = Portfolio(self.tickers, cash=self.initial_cash, eval_mode=self.eval_mode)
+        if self.truncation_period is not None:
+            rand_index = np.random.choice(self.valid_start_indices)
+            self.i_start_for_truncation = int(rand_index)
+            self.start_time_for_truncation = self.index[self.i_start_for_truncation]
+            self.i_current_tick = self.i_start_for_truncation
+            self.current_tick = self.start_time_for_truncation
+            self.portfolio = Portfolio(self.tickers, cash=self.initial_cash, eval_mode=self.eval_mode)
+        else:
+            self.current_tick = self.start_time
+            self.i_current_tick = self.i_start
+            self.portfolio = Portfolio(self.tickers, cash=self.initial_cash, eval_mode=self.eval_mode)
         return self._get_observation(self.current_tick), {}
 
     def step(self, actions: np.ndarray):
@@ -184,6 +221,14 @@ class TradeEnv(gym.Env):
         # reward is the return of the current ticker in the next 20 ticks, for example
         reward = np.zeros(len(self.tickers), dtype=np.float32)
         truncated = False
+        
+        # check truncation
+        if self.truncation_period is not None:
+            start_date = self.index[self.i_start_for_truncation].date()
+            current_date = self.index[self.i_current_tick].date()
+            days_passed = (current_date - start_date).days
+            if days_passed >= self.truncation_period:
+                truncated = True
         
         # sanity check
         if self.i_current_tick + self.reward_look_ahead >= len(self.index) - 1:
