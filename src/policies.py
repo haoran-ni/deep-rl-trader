@@ -58,9 +58,9 @@ class RuleMixingMixin:
                 nn.Linear(self.mix_hidden, 1 + self.n_rules, bias=False),
             )
             # Bias to prefer rules at init (model column is index 0)
-            self.mix_bias = nn.Parameter(torch.zeros(1 + self.n_rules))
-            with torch.no_grad():
-                self.mix_bias[0] = -10.0
+            self.mix_bias = nn.Parameter(torch.ones(1 + self.n_rules))
+            # with torch.no_grad():
+            #     self.mix_bias[0] = -10.0
         else:
             self.mix_mlp = nn.Identity()
             self.mix_bias = nn.Parameter(torch.zeros(1), requires_grad=False)

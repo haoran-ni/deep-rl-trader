@@ -1,7 +1,9 @@
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pandas as pd
+from gymnasium import spaces
+
+from config import TZ
 
 
 class TradeEnv(gym.Env):
@@ -75,8 +77,8 @@ class TradeEnv(gym.Env):
                 "cash": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "total_value": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
                 "shares": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
-                "average_price": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
-                "returns": spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32),
+                # "average_price": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+                # "returns": spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32),
             }) for ticker in tickers
         })
 
@@ -109,7 +111,7 @@ class TradeEnv(gym.Env):
             # Smart truncation: if truncation_period >= available data period, disable truncation
             if self.truncation_period >= available_days:
                 print(f"[TradeEnv] Truncation period ({self.truncation_period} days) >= available data period "
-                      f"({available_days} days). Disabling truncation for this environment.")
+                      f"({available_days} days). Disabling truncation for this environment (tickers: {self.tickers}).")
                 self.truncation_period = None
             else:
                 # these two variables are updated for each reset
@@ -117,7 +119,7 @@ class TradeEnv(gym.Env):
                 self.i_start_for_truncation = self.i_start
 
                 # ALL TIME CONVERTED TO EASTERN TIME!
-                max_start_date = pd.Timestamp(end_date - pd.Timedelta(days=self.truncation_period)).tz_localize('America/New_York')
+                max_start_date = pd.Timestamp(end_date - pd.Timedelta(days=self.truncation_period)).tz_localize(TZ)
                 # valid start indices also considering self.i_start
                 self.valid_start_indices = np.where(self.index <= max_start_date)[0][self.i_start:]
 
@@ -142,14 +144,20 @@ class TradeEnv(gym.Env):
         return self._get_observation(self.current_tick), {}
 
     def step(self, actions: np.ndarray):
+        # if self.i_current_tick == 0:
+        #     print(f"[TradeEnv] Started: {self.tickers}. Current tick: {self.i_current_tick}. Length: {len(self.index)}")
+
         # NOTE: this function should be called strictly based on time sequence because portfolio is time dependent
-        
+
         # NOTE: actions comes from one strategy, not a list of strategies
-        
+
         # quantize actions to 1 decimal place
         actions = np.round(actions, decimals=1)
         self.last_action = actions.copy()
-        
+
+        # Store previous portfolio value for reward calculation
+        prev_total_value = self.portfolio.total_value
+
         # actions act on the Open price of the tick
         # the returned state / reward is based on the Close price of the tick
         self.i_current_tick += 1
@@ -177,7 +185,7 @@ class TradeEnv(gym.Env):
                 else:
                     # action not executed, set last action to hold
                     self.last_action[i] = 0.0
-                    
+
             elif actions[i] < 0: # e.g. action = -0.5, sell half of the shares
                 # sell at the open price of the next tick
                 sell_price = open_price
@@ -195,10 +203,13 @@ class TradeEnv(gym.Env):
 
         # update portfolio data at the close price
         self.portfolio.step(self.current_tick, close_prices)
-        
+
         obs = self._get_observation(self.current_tick)
-        reward, truncated = self._get_reward() # reward.shape = (len(tickers),)
-        
+        reward, truncated = self._get_reward(prev_total_value) # reward.shape = (len(tickers),)
+
+        # if truncated:
+        #     print(f"[TradeEnv] Truncated: {self.tickers}. Current tick: {self.i_current_tick}. Length: {len(self.index)}")
+
         return obs, reward, False, truncated, {}
 
     def _get_observation(self, tick: pd.Timestamp) -> dict:
@@ -225,18 +236,24 @@ class TradeEnv(gym.Env):
                 "cash": self.portfolio.holdings_info[ticker]["cash"] if self.eval_mode else self.portfolio.cash,
                 "total_value": self.portfolio.holdings_info[ticker]["total_value"] if self.eval_mode else self.portfolio.total_value,
                 "shares": self.portfolio.holdings_info[ticker]["shares"],
-                "average_price": self.portfolio.holdings_info[ticker]["average_price"],
-                "returns": self.portfolio.holdings_info[ticker]["returns"],
+                # "average_price": self.portfolio.holdings_info[ticker]["average_price"],
+                # "returns": self.portfolio.holdings_info[ticker]["returns"],
             }
             
         return obs
 
-    def _get_reward(self) -> float:
-        # TODO: add drawback penalty
-        # reward is the return of the current ticker in the next 20 ticks, for example
-        reward = np.zeros(len(self.tickers), dtype=np.float32)
+    def _get_reward(self, prev_total_value: float) -> tuple:
+        """
+        Calculate reward as the portfolio value difference between current and previous tick.
+
+        Args:
+            prev_total_value: Total portfolio value before the current step
+
+        Returns:
+            Tuple of (reward, truncated)
+        """
         truncated = False
-        
+
         # check truncation
         if self.truncation_period is not None:
             start_date = self.index[self.i_start_for_truncation].date()
@@ -244,22 +261,40 @@ class TradeEnv(gym.Env):
             days_passed = (current_date - start_date).days
             if days_passed >= self.truncation_period:
                 truncated = True
-        
-        # sanity check
+
+        # sanity check for end of data
         if self.i_current_tick + self.reward_look_ahead >= len(self.index) - 1:
             truncated = True
-            # use the last price available
-            future_price = self.data.loc[self.index[-1]]["Close"]
-        else:
-            future_price = self.data.loc[self.index[self.i_current_tick + self.reward_look_ahead]]["Close"]
-        
-        for i, ticker in enumerate(self.tickers):
-            holding_shares = self.portfolio.holdings_info[ticker]["shares"]
-            if holding_shares == 0.0:
-                reward[i] = 0.0
-            else:
-                average_price = self.portfolio.holdings_info[ticker]["average_price"]
-                reward[i] = holding_shares * (future_price[ticker] - average_price) / self.initial_cash
+
+        # ============ NEW REWARD ============================
+        # NEW REWARD: Simple portfolio value difference (current - previous)
+        # Normalized by initial cash for consistency with old reward scale
+        current_total_value = self.portfolio.total_value
+        reward = np.array([(current_total_value - prev_total_value) / self.initial_cash], dtype=np.float32) * 10
+
+        # Expand to match number of tickers (same reward for all tickers in multi-ticker env)
+        reward = np.repeat(reward, len(self.tickers))
+        # =====================================================
+
+        # ============ OLD REWARD (COMMENTED OUT) =============
+        # # TODO: add drawback penalty
+        # # reward is the return of the current ticker in the next 20 ticks, for example
+        # reward = np.zeros(len(self.tickers), dtype=np.float32)
+        #
+        # # use the last price available
+        # if truncated:
+        #     future_price = self.data.loc[self.index[-1]]["Close"]
+        # else:
+        #     future_price = self.data.loc[self.index[self.i_current_tick + self.reward_look_ahead]]["Close"]
+        #
+        # for i, ticker in enumerate(self.tickers):
+        #     holding_shares = self.portfolio.holdings_info[ticker]["shares"]
+        #     if holding_shares == 0.0:
+        #         reward[i] = 0.0
+        #     else:
+        #         average_price = self.portfolio.holdings_info[ticker]["average_price"]
+        #         reward[i] = holding_shares * (future_price[ticker] - average_price) / self.initial_cash
+        # =====================================================
 
         return reward, truncated
 

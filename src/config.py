@@ -1,21 +1,43 @@
 # config.py
 from __future__ import annotations
+from pathlib import Path
+
+# ---------- Data loading ----------
+# DEFAULT: Load from local CSV files (faster, no network dependency)
+# Set USE_LOCAL_CSV = True to load from local CSV, False to download from yfinance
+USE_LOCAL_CSV = True
+# USE_LOCAL_CSV = False
+LOCAL_CSV_DIR = str(Path(__file__).parent.parent / "dataset" / "nasdaq_100_2025_constituents_processed")
+
+# Automatically use ALL tickers available in the dataset
+# If True, will dynamically load all tickers from LOCAL_CSV_DIR at the specified INTERVAL
+# If False, will use manually specified ticker lists from tickers.py
+# USE_ALL_DATASET_TICKERS = True
+USE_ALL_DATASET_TICKERS = False
 
 # ---------- Data ranges ----------
-TRAIN_START = "2005-01-01"
-TRAIN_END   = "2018-12-31"
+# Note: Many stocks don't have full data from 2015-12, they have various start dates
+# The data loading will handle stocks with different lengths automatically
+TRAIN_START = "2015-12-07"  # Start from earliest available data
+TRAIN_END   = "2023-11-30"  # Train up to end of Nov 2023
 
-VAL_START   = "2019-01-01"
-VAL_END     = "2020-12-31"
+VAL_START   = "2023-12-01"  # Validation: Dec 2023 - Nov 2024
+VAL_END     = "2024-11-30"
 
-TEST_START  = "2021-01-01"
-TEST_END    = "2024-12-31"
+TEST_START  = "2024-12-01"  # Test: Dec 2024 onwards
+TEST_END    = "2025-12-01"
 
 # A little buffer for cached downloads so we can pre-pad T-1 history
-CACHE_DOWNLOAD_START = "2004-01-01"
-CACHE_DOWNLOAD_END   = "2024-12-31"
+CACHE_DOWNLOAD_START = "2015-12-01"  # Start from earliest available
+CACHE_DOWNLOAD_END   = "2025-12-31"  # Extended to cover test period
 
-INTERVAL = "1d"
+# INTERVAL options:
+# - For local CSV: "1_hour", "15_mins", "1_min"
+# - For yfinance download: "1d", "1h", "30m", "15m"
+INTERVAL = "1_hour"  # changed to match local CSV format
+# INTERVAL = "1d"  # changed to match local CSV format
+
+TZ = "America/New_York"
 
 # ---------- Env / economics ----------
 TOTAL_ASSET    = 1_000_000.0
@@ -25,6 +47,10 @@ REWARD_LOOK_AHEAD = 0  # 20
 
 # Rolling history length T for (T, D) sequences
 T_SEQUENCE = 30  # history length T (no warm-up forced; we pre-slice with real past)
+
+# Truncation for training (in days). Set to None for no truncation.
+# During evaluation, truncation is always disabled (None).
+TRUNCATION_PERIOD = None  # Truncate episodes after this many days during training
 
 # ---------- Rule strategies ----------
 # (A) Strategies used as *augmenting signals* mixed into the policy during train/eval
@@ -52,26 +78,30 @@ MIX_HIDDEN      = 64        # hidden width for the mixing MLP (latent_pi -> 1+K)
 # ---------- PPO ----------
 # steps_per_iteration = n_steps * num_envs
 # iterations = total_timesteps / steps_per_iteration = total_timesteps_per_env / n_steps
-TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
-# TOTAL_STEPS_PER_ENV = 10_000  # multiplied by number of training envs
+# TOTAL_STEPS_PER_ENV = 250_000  # multiplied by number of training envs
+TOTAL_STEPS_PER_ENV = 10_000  # multiplied by number of training envs
+# TOTAL_STEPS_PER_ENV = 1  # multiplied by number of training envs
 N_STEPS     = 128
 BATCH_SIZE  = 128
 LEARNING_RATE = 3e-4
 N_EPOCHS    = 10
 GAMMA       = 0.99
 GAE_LAMBDA  = 0.95
+# GAE_LAMBDA  = 0.7
 CLIP_RANGE  = 0.2
 ENT_COEF    = 0.01
+# ENT_COEF    = 0.0
 VF_COEF     = 0.5
 MAX_GRAD_NORM = 0.5
 # MAX_GRAD_NORM = 1e8
 SEED        = 42
 
 # ---------- Logging / cache ----------
-EVAL_EVERY   = 40_000
+# EVAL_EVERY   = 40_000
+EVAL_EVERY   = 120_000
 # EVAL_EVERY   = 5_000
 USE_WANDB    = True
-WANDB_PROJECT = "clstm_ppo_rule_aug"
+WANDB_PROJECT = "clstm_ppo_rule_aug_2"
 
 CACHE_DIR  = "data_cache"
 ETF_BENCH  = "QQQ"       # used for plots; cached too
@@ -127,8 +157,7 @@ DATA_DICT = {
     }
 }
 
-import os
-DATA_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_ROOT_DIR = str(Path(__file__).parent)
 
 
 ###### API KEYS ########

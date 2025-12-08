@@ -216,6 +216,7 @@ runs/
 wandb/
 data/
 figures/
+models/
 # FinRL logs
 dataset/
 results/
